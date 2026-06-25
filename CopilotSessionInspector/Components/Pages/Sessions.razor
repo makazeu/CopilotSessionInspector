@@ -1,0 +1,109 @@
+@page "/sessions"
+@rendermode InteractiveServer
+@inject SessionAnalysisService Analysis
+@inject TelemetryLogParser Telemetry
+
+<PageTitle>Sessions - Copilot Session Inspector</PageTitle>
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h1>Sessions</h1>
+    <button class="btn btn-outline-secondary btn-sm" @onclick="ReloadAsync" disabled="@_loading">
+        @(_loading ? "Loading…" : "Reload telemetry")
+    </button>
+</div>
+
+@if (!Analysis.DataAvailable)
+{
+    <div class="alert alert-warning">No Copilot session database was found for the current user.</div>
+}
+else if (_loading)
+{
+    <p><em>Parsing session store and telemetry logs…</em></p>
+}
+else if (_rows is null || _rows.Count == 0)
+{
+    <p>No sessions found.</p>
+}
+else
+{
+    <p class="text-muted">
+        @_rows.Count sessions · @_rows.Count(r => r.HasTelemetry) with token telemetry ·
+        totals: @Sum(r => r.TotalAiu).ToString("N1") AIU,
+        @Sum(r => r.TotalTokens / 1000.0).ToString("N0")k tokens,
+        @FormatDuration(_rows.Sum(r => r.TotalApiDurationMs)) API time.
+        <span class="ms-2">Telemetry parsed @Telemetry.ParsedAt.ToLocalTime().ToString("g").</span>
+    </p>
+
+    <div class="table-responsive">
+    <table class="table table-sm table-hover align-middle">
+        <thead>
+            <tr>
+                <th>Session</th>
+                <th>Repo / Dir</th>
+                <th>Updated</th>
+                <th class="text-end">Turns</th>
+                <th class="text-end">API calls</th>
+                <th class="text-end">Tokens</th>
+                <th class="text-end">AIU</th>
+                <th class="text-end">Cost</th>
+                <th class="text-end">API time</th>
+                <th></th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var r in _rows)
+            {
+                <tr>
+                    <td>
+                        <div class="fw-semibold">@Truncate(r.Session.DisplayName, 60)</div>
+                        <div class="text-muted small font-monospace">@r.Session.Id</div>
+                    </td>
+                    <td class="small">@(r.Session.Repository ?? r.Session.Cwd)</td>
+                    <td class="small">@(r.Session.UpdatedAt?.ToLocalTime().ToString("g"))</td>
+                    <td class="text-end">@r.TurnCount</td>
+                    <td class="text-end">@(r.HasTelemetry ? r.ApiCallCount.ToString() : "—")</td>
+                    <td class="text-end">@(r.HasTelemetry ? r.TotalTokens.ToString("N0") : "—")</td>
+                    <td class="text-end">@(r.HasTelemetry ? r.TotalAiu.ToString("N1") : "—")</td>
+                    <td class="text-end">@(r.HasTelemetry ? r.TotalCost.ToString("N1") : "—")</td>
+                    <td class="text-end">@(r.HasTelemetry ? FormatDuration(r.TotalApiDurationMs) : "—")</td>
+                    <td><a class="btn btn-sm btn-outline-primary" href="@($"session/{r.Session.Id}")">Inspect</a></td>
+                </tr>
+            }
+        </tbody>
+    </table>
+    </div>
+}
+
+@code {
+    private List<SessionSummaryRow>? _rows;
+    private bool _loading = true;
+
+    protected override async Task OnInitializedAsync() => await LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        _rows = await Task.Run(() => Analysis.GetSessionRows());
+        _loading = false;
+    }
+
+    private async Task ReloadAsync()
+    {
+        _loading = true;
+        StateHasChanged();
+        await Task.Run(() => Analysis.Reload());
+        await LoadAsync();
+    }
+
+    private double Sum(Func<SessionSummaryRow, double> sel) => _rows?.Sum(sel) ?? 0;
+
+    private static string Truncate(string s, int n) => s.Length <= n ? s : s[..n] + "…";
+
+    private static string FormatDuration(double ms)
+    {
+        var t = TimeSpan.FromMilliseconds(ms);
+        if (t.TotalHours >= 1) return $"{(int)t.TotalHours}h {t.Minutes}m";
+        if (t.TotalMinutes >= 1) return $"{t.Minutes}m {t.Seconds}s";
+        return $"{t.TotalSeconds:N1}s";
+    }
+}

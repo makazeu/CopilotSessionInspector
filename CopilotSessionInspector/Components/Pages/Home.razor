@@ -1,0 +1,53 @@
+@page "/"
+@inject CopilotPaths Paths
+@inject SessionAnalysisService Analysis
+
+<PageTitle>Copilot Session Inspector</PageTitle>
+
+<div class="hero mb-4">
+    <span class="hero-badge">GitHub Copilot CLI</span>
+    <h1 class="hero-title">Copilot Session Inspector</h1>
+    <p class="lead hero-lead">
+        Reconstruct your GitHub Copilot CLI sessions and analyze their time, token and
+        AI-credit (AIU) consumption — with charts and cost-reduction suggestions.
+    </p>
+
+    @if (!Paths.Exists)
+    {
+        <div class="alert alert-warning">
+            Could not find a Copilot CLI data directory at <code>@Paths.Root</code>.
+            Set <code>CopilotHome</code> in configuration to point at a <code>.copilot</code> folder.
+        </div>
+    }
+    else
+    {
+        <div class="d-flex align-items-center gap-3 flex-wrap">
+            <a class="btn btn-primary btn-lg" href="sessions">Browse sessions &raquo;</a>
+            <span class="text-muted small">Reading data for the current user from <code>@Paths.Root</code></span>
+        </div>
+    }
+</div>
+
+<div class="row g-3 mt-1">
+    <div class="col-md-4">
+        <div class="card feature-card h-100"><div class="card-body">
+            <div class="feature-icon">↻</div>
+            <h5 class="card-title">Reconstruct</h5>
+            <p class="card-text">Replay every turn — your prompts, agent replies and the model API calls behind them.</p>
+        </div></div>
+    </div>
+    <div class="col-md-4">
+        <div class="card feature-card h-100"><div class="card-body">
+            <div class="feature-icon">📊</div>
+            <h5 class="card-title">Analyze</h5>
+            <p class="card-text">See input/output/reasoning tokens, AI units, premium cost and latency per turn and per model.</p>
+        </div></div>
+    </div>
+    <div class="col-md-4">
+        <div class="card feature-card h-100"><div class="card-body">
+            <div class="feature-icon">✨</div>
+            <h5 class="card-title">Optimize</h5>
+            <p class="card-text">Get concrete suggestions to cut token and credit consumption in future sessions.</p>
+        </div></div>
+    </div>
+</div>

@@ -1,0 +1,76 @@
+# ============================================================
+# .NET / Visual Studio
+# ============================================================
+
+# Build results
+[Bb]in/
+[Oo]bj/
+[Oo]ut/
+[Ll]og/
+[Ll]ogs/
+
+# .NET build / publish output
+artifacts/
+publish/
+[Pp]ublish/
+*.binlog
+
+# Visual Studio / Rider / VS Code
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+*_i.c
+*_p.c
+*.rsuser
+
+# ASP.NET scaffolding / user secrets
+**/Properties/launchSettings.local.json
+
+# Test results / coverage
+[Tt]est[Rr]esult*/
+[Cc]overage*/
+*.coverage
+*.coveragexml
+*.trx
+
+# NuGet
+*.nupkg
+*.snupkg
+**/[Pp]ackages/*
+!**/[Pp]ackages/build/
+.nuget/
+project.lock.json
+project.fragment.lock.json
+
+# ============================================================
+# Runtime / local logs & data (do NOT commit)
+# ============================================================
+*.log
+app.log
+run.log
+
+# Local databases / dumps
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+
+# ============================================================
+# OS / editor junk
+# ============================================================
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+.DS_Store
+
+# ============================================================
+# Project-local scratch (screenshots, puppeteer, temp tooling)
+# ============================================================
+_shots/
+_pptr/
+node_modules/
