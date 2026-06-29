@@ -114,6 +114,12 @@ public sealed class SessionEvent
     public double DurationMs { get; set; }
     public long ResultLength { get; set; }
     public bool IsMcp { get; set; }
+
+    // session.resume context metadata
+    public string? Cwd { get; set; }
+    public string? Repository { get; set; }
+    public string? Branch { get; set; }
+    public string? HostType { get; set; }
 }
 
 /// <summary>Session metadata read from session-store.db.</summary>

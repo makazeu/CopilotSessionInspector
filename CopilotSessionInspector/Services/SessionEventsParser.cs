@@ -93,6 +93,18 @@ public sealed class SessionEventsParser
 
             switch (type)
             {
+                case "session.resume":
+                    if (data.ValueKind == JsonValueKind.Object
+                        && data.TryGetProperty("context", out var context)
+                        && context.ValueKind == JsonValueKind.Object)
+                    {
+                        ev.Cwd = Str(context, "cwd");
+                        ev.Repository = Str(context, "repository");
+                        ev.Branch = Str(context, "branch");
+                        ev.HostType = Str(context, "hostType");
+                    }
+                    break;
+
                 case "user.message":
                     ev.Content = Str(data, "content");
                     ev.AgentMode = Str(data, "agentMode");

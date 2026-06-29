@@ -40,6 +40,7 @@ public sealed class SessionAnalysisService
             var usage = tele?.Usage ?? new List<AssistantUsageEvent>();
             int turnCount = turnCounts.TryGetValue(s.Id, out var tc) ? tc : 0;
             var events = _events.GetForSession(s.Id);
+            EnrichSessionFromEvents(s, events);
             double sessionDurationMs = SessionDurationMs(events, tele, s);
             var row = new SessionSummaryRow
             {
@@ -90,6 +91,7 @@ public sealed class SessionAnalysisService
         var checkpoints = _store.GetCheckpoints(sessionId);
         var tele = _telemetry.GetForSession(sessionId);
         var events = _events.GetForSession(sessionId);
+        EnrichSessionFromEvents(session, events);
 
         var analysis = new SessionAnalysis { Session = session };
         analysis.Checkpoints.AddRange(checkpoints);
@@ -107,6 +109,24 @@ public sealed class SessionAnalysisService
         analysis.Suggestions.AddRange(GenerateSuggestions(analysis));
         return analysis;
     }
+
+    private static void EnrichSessionFromEvents(SessionInfo session, List<SessionEvent> events)
+    {
+        var context = events.FirstOrDefault(e => e.Type == "session.resume"
+            && (!string.IsNullOrWhiteSpace(e.Cwd)
+                || !string.IsNullOrWhiteSpace(e.Repository)
+                || !string.IsNullOrWhiteSpace(e.Branch)
+                || !string.IsNullOrWhiteSpace(e.HostType)));
+        if (context is null) return;
+
+        session.Cwd = Coalesce(session.Cwd, context.Cwd);
+        session.Repository = Coalesce(session.Repository, context.Repository);
+        session.Branch = Coalesce(session.Branch, context.Branch);
+        session.HostType = Coalesce(session.HostType, context.HostType);
+    }
+
+    private static string? Coalesce(string? current, string? fallback)
+        => string.IsNullOrWhiteSpace(current) && !string.IsNullOrWhiteSpace(fallback) ? fallback : current;
 
     private static double TimelineSessionDurationMs(SessionAnalysis analysis)
     {
