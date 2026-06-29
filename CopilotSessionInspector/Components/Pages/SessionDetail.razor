@@ -154,7 +154,7 @@ else
                         @foreach (var tb in a.ToolBreakdowns)
                         {
                             <tr>
-                                <td class="font-monospace">@tb.ToolName</td>
+                                <td class="font-monospace">@ToolIcon(tb.ToolName) @tb.ToolName</td>
                                 <td class="text-end">@tb.Calls</td>
                                 <td class="text-end">@(tb.Failures > 0 ? tb.Failures.ToString() : "—")</td>
                                 <td class="text-end">@FormatDuration(tb.DurationMs)</td>
@@ -169,6 +169,42 @@ else
     else
     {
         <div class="alert alert-secondary">No token telemetry available for this session — showing the reconstructed conversation only.</div>
+    }
+
+    @if (a.TotalSkillInvocations > 0)
+    {
+        <details class="mt-2">
+            <summary class="h5 tool-breakdown-summary">Skills invoked</summary>
+            <div class="table-responsive mt-2">
+            <table class="table table-sm skill-table">
+                <thead><tr>
+                    <th class="skill-col-name">Skill</th>
+                    <th class="skill-col-meta">Plugin</th>
+                    <th class="skill-col-meta">Source</th>
+                    <th class="skill-col-meta">Trigger</th>
+                    <th class="text-end skill-col-calls">Calls</th>
+                </tr></thead>
+                <tbody>
+                    @foreach (var skill in a.SkillBreakdowns)
+                    {
+                        <tr>
+                            <td class="skill-cell-name">
+                                <span class="font-monospace skill-name">✨ @skill.SkillName</span>
+                                @if (!string.IsNullOrWhiteSpace(skill.Description))
+                                {
+                                    <div class="small text-muted skill-description">@skill.Description</div>
+                                }
+                            </td>
+                            <td class="small skill-cell-meta">@(skill.PluginName ?? "—")</td>
+                            <td class="small skill-cell-meta">@(skill.Source ?? "—")</td>
+                            <td class="small skill-cell-meta">@(skill.Trigger ?? "—")</td>
+                            <td class="text-end skill-cell-calls">@skill.Calls</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+            </div>
+        </details>
     }
 
     @* ---- Timeline ---- *@

@@ -321,6 +321,7 @@ public sealed class SessionAnalysis
 
     public int TotalToolCalls => Timeline.Sum(t => t.ToolCallCount);
     public double TotalToolDurationMs => Timeline.Sum(t => t.ToolDurationMs);
+    public int TotalSkillInvocations => Timeline.Sum(t => t.SkillInvocationCount);
 
     public IEnumerable<ToolBreakdown> ToolBreakdowns =>
         Timeline.SelectMany(t => t.ToolCalls)
@@ -333,6 +334,26 @@ public sealed class SessionAnalysis
                 DurationMs = g.Sum(c => c.DurationMs),
             })
             .OrderByDescending(t => t.Calls);
+
+    public IEnumerable<SkillBreakdown> SkillBreakdowns =>
+        Timeline.SelectMany(t => t.Steps)
+            .Where(s => s.IsSkill)
+            .GroupBy(s => s.SkillName ?? "?")
+            .Select(g =>
+            {
+                var first = g.First();
+                return new SkillBreakdown
+                {
+                    SkillName = g.Key,
+                    Calls = g.Count(),
+                    PluginName = first.PluginName,
+                    Source = first.SkillSource,
+                    Trigger = first.SkillTrigger,
+                    Description = first.SkillDescription,
+                };
+            })
+            .OrderByDescending(s => s.Calls)
+            .ThenBy(s => s.SkillName);
 
     public IEnumerable<ModelBreakdown> ModelBreakdowns =>
         Timeline.SelectMany(t => t.Actions)
@@ -380,6 +401,16 @@ public sealed class ToolBreakdown
     public int Calls { get; set; }
     public int Failures { get; set; }
     public double DurationMs { get; set; }
+}
+
+public sealed class SkillBreakdown
+{
+    public string SkillName { get; set; } = "";
+    public int Calls { get; set; }
+    public string? PluginName { get; set; }
+    public string? Source { get; set; }
+    public string? Trigger { get; set; }
+    public string? Description { get; set; }
 }
 
 /// <summary>Row in the sessions list with rolled-up totals.</summary>

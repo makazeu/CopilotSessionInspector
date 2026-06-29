@@ -414,6 +414,34 @@ details.turn-card .turn-summary-label > strong { color: #1b2030; }
     transition: transform .15s ease;
 }
 details[open] > .tool-breakdown-summary::before { transform: rotate(90deg); }
+
+/* Responsive skills table */
+.skill-table {
+    table-layout: auto;
+    width: 100%;
+}
+.skill-table .skill-col-name { width: 48%; min-width: 16rem; }
+.skill-table .skill-col-meta { width: 15%; }
+.skill-table .skill-col-calls { width: 4.5rem; }
+.skill-table .skill-name {
+    display: inline-block;
+    max-width: 100%;
+    overflow-wrap: anywhere;
+}
+.skill-table .skill-description {
+    max-width: 72ch;
+    line-height: 1.32;
+    overflow-wrap: anywhere;
+}
+.skill-table .skill-cell-meta {
+    max-width: 12rem;
+    overflow-wrap: anywhere;
+    color: #4b5563;
+}
+.skill-table .skill-cell-calls {
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+}
 .source-grid strong {
     display: block;
     color: var(--muted);
@@ -527,6 +555,12 @@ details[open] > .tool-breakdown-summary::before { transform: rotate(90deg); }
 
     /* tool-arg preview shouldn't force wide rows on mobile */
     ul.op-list details.args-inline > summary > code.op-args { max-width: 42vw; }
+
+    .skill-table .skill-col-name,
+    .skill-table .skill-col-meta,
+    .skill-table .skill-col-calls { width: auto; min-width: 0; }
+    .skill-table .skill-cell-meta { max-width: 9rem; }
+    .skill-table .skill-description { max-width: 58vw; }
 }
 
 /* Reduce motion preference */
