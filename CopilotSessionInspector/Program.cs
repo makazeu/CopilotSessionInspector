@@ -13,6 +13,7 @@ builder.Services.AddSingleton<SessionStoreService>();
 builder.Services.AddSingleton<TelemetryLogParser>();
 builder.Services.AddSingleton<SessionEventsParser>();
 builder.Services.AddSingleton<SessionAnalysisService>();
+builder.Services.AddHostedService<SessionCacheWarmupService>();
 
 var app = builder.Build();
 

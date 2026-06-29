@@ -17,6 +17,8 @@ public sealed class SessionEventsParser
     private readonly ILogger<SessionEventsParser> _logger;
     private readonly object _gate = new();
     private readonly Dictionary<string, List<SessionEvent>> _cache = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, SessionEventSummary> _summaryCache = new(StringComparer.Ordinal);
+    private Dictionary<string, string>? _agencyEventsIndex;
 
     public SessionEventsParser(CopilotPaths paths, ILogger<SessionEventsParser> logger)
     {
@@ -26,7 +28,12 @@ public sealed class SessionEventsParser
 
     public void Reload()
     {
-        lock (_gate) _cache.Clear();
+        lock (_gate)
+        {
+            _cache.Clear();
+            _summaryCache.Clear();
+            _agencyEventsIndex = null;
+        }
     }
 
     /// <summary>Returns the ordered events for a session, or an empty list if none exist.</summary>
@@ -36,7 +43,14 @@ public sealed class SessionEventsParser
         {
             if (_cache.TryGetValue(sessionId, out var cached))
                 return cached;
-            var parsed = ParseSession(sessionId);
+        }
+
+        var parsed = ParseSession(sessionId);
+
+        lock (_gate)
+        {
+            if (_cache.TryGetValue(sessionId, out var cached))
+                return cached;
             _cache[sessionId] = parsed;
             return parsed;
         }
@@ -44,11 +58,31 @@ public sealed class SessionEventsParser
 
     public bool HasEvents(string sessionId) => GetForSession(sessionId).Count > 0;
 
+    public SessionEventSummary GetSummaryForSession(string sessionId)
+    {
+        lock (_gate)
+        {
+            if (_summaryCache.TryGetValue(sessionId, out var cached))
+                return cached;
+        }
+
+        var summary = ParseSessionSummary(sessionId);
+
+        lock (_gate)
+        {
+            if (_summaryCache.TryGetValue(sessionId, out var cached))
+                return cached;
+            _summaryCache[sessionId] = summary;
+            return summary;
+        }
+    }
+
     private List<SessionEvent> ParseSession(string sessionId)
     {
         var result = new List<SessionEvent>();
-        var file = Path.Combine(_paths.SessionStateDir, sessionId, "events.jsonl");
+        var file = FindEventsFile(sessionId);
         if (!File.Exists(file)) return result;
+        var source = IsAgencyPath(file) ? "Agency events" : "Copilot session-state";
 
         try
         {
@@ -59,7 +93,11 @@ public sealed class SessionEventsParser
             {
                 if (string.IsNullOrWhiteSpace(line) || line[0] != '{') continue;
                 var ev = ParseLine(line);
-                if (ev is not null) result.Add(ev);
+                if (ev is not null)
+                {
+                    ev.Source = source;
+                    result.Add(ev);
+                }
             }
         }
         catch (Exception ex)
@@ -70,6 +108,162 @@ public sealed class SessionEventsParser
         result.Sort((a, b) => Nullable.Compare(a.Timestamp, b.Timestamp));
         return result;
     }
+
+    private SessionEventSummary ParseSessionSummary(string sessionId)
+    {
+        var file = FindEventsFile(sessionId);
+        if (!File.Exists(file)) return new SessionEventSummary();
+        var source = IsAgencyPath(file) ? "Agency events" : "Copilot session-state";
+        var summary = new SessionEventSummary { Source = source, HasEvents = true };
+
+        DateTimeOffset? turnStart = null;
+        DateTimeOffset? lastInTurn = null;
+        double activeDurationMs = 0;
+
+        try
+        {
+            var info = new FileInfo(file);
+            if (info.Length is <= 0 or > MaxFileBytes) return new SessionEventSummary();
+
+            foreach (var line in File.ReadLines(file))
+            {
+                if (string.IsNullOrWhiteSpace(line) || line[0] != '{') continue;
+                JsonDocument doc;
+                try { doc = JsonDocument.Parse(line); }
+                catch { continue; }
+
+                using (doc)
+                {
+                    var root = doc.RootElement;
+                    if (root.ValueKind != JsonValueKind.Object) continue;
+                    var type = Str(root, "type");
+                    if (string.IsNullOrWhiteSpace(type)) continue;
+                    var timestamp = ParseTime(root, "timestamp");
+                    root.TryGetProperty("data", out var data);
+
+                    if (type == "session.resume"
+                        && data.ValueKind == JsonValueKind.Object
+                        && data.TryGetProperty("context", out var context)
+                        && context.ValueKind == JsonValueKind.Object)
+                    {
+                        summary.Cwd ??= Str(context, "cwd");
+                        summary.Repository ??= Str(context, "repository");
+                        summary.Branch ??= Str(context, "branch");
+                        summary.HostType ??= Str(context, "hostType");
+                    }
+                    else if (type == "user.message")
+                    {
+                        var content = Str(data, "content");
+                        if (string.IsNullOrWhiteSpace(content)) continue;
+                        if (turnStart.HasValue && lastInTurn.HasValue)
+                        {
+                            var duration = (lastInTurn.Value - turnStart.Value).TotalMilliseconds;
+                            if (duration > 0) activeDurationMs += duration;
+                        }
+                        summary.UserMessageCount++;
+                        turnStart = timestamp;
+                        lastInTurn = timestamp;
+                    }
+                    else if (type == "assistant.message")
+                    {
+                        summary.AssistantMessageCount++;
+                        summary.OutputTokens += Long(data, "outputTokens");
+                        if (turnStart.HasValue && timestamp.HasValue)
+                            lastInTurn = timestamp.Value;
+                    }
+                    else if (type == "tool.execution_complete")
+                    {
+                        summary.ToolExecutionCount++;
+                        if (turnStart.HasValue && timestamp.HasValue)
+                            lastInTurn = timestamp.Value;
+                    }
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed parsing events.jsonl summary for session {SessionId}", sessionId);
+            return new SessionEventSummary();
+        }
+
+        if (turnStart.HasValue && lastInTurn.HasValue)
+        {
+            var duration = (lastInTurn.Value - turnStart.Value).TotalMilliseconds;
+            if (duration > 0) activeDurationMs += duration;
+        }
+        summary.SessionDurationMs = activeDurationMs;
+        return summary;
+    }
+
+    private string FindEventsFile(string sessionId)
+    {
+        var copilotFile = Path.Combine(_paths.SessionStateDir, sessionId, "events.jsonl");
+        if (File.Exists(copilotFile)) return copilotFile;
+
+        var agencyIndex = GetAgencyEventsIndex();
+        return agencyIndex.TryGetValue(sessionId, out var agencyFile) ? agencyFile : copilotFile;
+    }
+
+    private Dictionary<string, string> GetAgencyEventsIndex()
+    {
+        lock (_gate)
+        {
+            if (_agencyEventsIndex is not null)
+                return _agencyEventsIndex;
+
+            _agencyEventsIndex = BuildAgencyEventsIndex();
+            return _agencyEventsIndex;
+        }
+    }
+
+    private Dictionary<string, string> BuildAgencyEventsIndex()
+    {
+        var index = new Dictionary<string, string>(StringComparer.Ordinal);
+        if (!Directory.Exists(_paths.AgencyLogsDir)) return index;
+
+        foreach (var file in Directory.EnumerateFiles(_paths.AgencyLogsDir, "events.jsonl", SearchOption.AllDirectories))
+        {
+            var sessionId = TryReadSessionId(file);
+            if (!string.IsNullOrWhiteSpace(sessionId))
+                index.TryAdd(sessionId, file);
+        }
+
+        return index;
+    }
+
+    private static string? TryReadSessionId(string file)
+    {
+        try
+        {
+            foreach (var line in File.ReadLines(file).Take(40))
+            {
+                if (string.IsNullOrWhiteSpace(line) || line[0] != '{') continue;
+                using var doc = JsonDocument.Parse(line);
+                var root = doc.RootElement;
+                if (root.ValueKind != JsonValueKind.Object
+                    || !root.TryGetProperty("data", out var data)
+                    || data.ValueKind != JsonValueKind.Object)
+                    continue;
+
+                var sessionId = Str(data, "sessionId");
+                if (!string.IsNullOrWhiteSpace(sessionId)) return sessionId;
+
+                if (data.TryGetProperty("context", out _))
+                {
+                    sessionId = Str(data, "session_id");
+                    if (!string.IsNullOrWhiteSpace(sessionId)) return sessionId;
+                }
+            }
+        }
+        catch (JsonException) { }
+        catch (IOException) { }
+        catch (UnauthorizedAccessException) { }
+
+        return null;
+    }
+
+    private bool IsAgencyPath(string file)
+        => Path.GetFullPath(file).StartsWith(Path.GetFullPath(_paths.AgencyLogsDir), StringComparison.OrdinalIgnoreCase);
 
     private static SessionEvent? ParseLine(string line)
     {

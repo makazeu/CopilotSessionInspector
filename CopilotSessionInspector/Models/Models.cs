@@ -4,6 +4,7 @@ namespace CopilotSessionInspector.Models;
 public sealed class ToolCallEvent
 {
     public string SessionId { get; set; } = "";
+    public string? Source { get; set; }
     public DateTimeOffset? Timestamp { get; set; }
     public int TurnId { get; set; } = -1;
     public string? ApiCallId { get; set; }
@@ -24,6 +25,7 @@ public sealed class ToolCallEvent
 public sealed class UserPromptEvent
 {
     public string SessionId { get; set; } = "";
+    public string? Source { get; set; }
     public DateTimeOffset? Timestamp { get; set; }
     public int ContentLength { get; set; }
     public string? AgentMode { get; set; }
@@ -33,6 +35,7 @@ public sealed class UserPromptEvent
 public sealed class AssistantMessageEvent
 {
     public string SessionId { get; set; } = "";
+    public string? Source { get; set; }
     public DateTimeOffset? Timestamp { get; set; }
     public int TurnId { get; set; } = -1;
     public string? ApiCallId { get; set; }
@@ -74,6 +77,7 @@ public sealed class TurnStep
     public bool? Success { get; set; }          // tool success flag
     public string? ErrorMessage { get; set; }   // failure reason (tool.execution_complete.error.message)
     public string? ErrorCode { get; set; }      // failure code (…error.code)
+    public string? Source { get; set; }
 }
 
 /// <summary>A request to invoke a tool, embedded in an assistant.message.</summary>
@@ -91,6 +95,7 @@ public sealed class ToolRequestInfo
 public sealed class SessionEvent
 {
     public string Type { get; set; } = "";
+    public string? Source { get; set; }
     public DateTimeOffset? Timestamp { get; set; }
 
     // assistant.message / user.message
@@ -120,6 +125,21 @@ public sealed class SessionEvent
     public string? Repository { get; set; }
     public string? Branch { get; set; }
     public string? HostType { get; set; }
+}
+
+public sealed class SessionEventSummary
+{
+    public string Source { get; set; } = "";
+    public bool HasEvents { get; set; }
+    public string? Cwd { get; set; }
+    public string? Repository { get; set; }
+    public string? Branch { get; set; }
+    public string? HostType { get; set; }
+    public int UserMessageCount { get; set; }
+    public int AssistantMessageCount { get; set; }
+    public int ToolExecutionCount { get; set; }
+    public long OutputTokens { get; set; }
+    public double SessionDurationMs { get; set; }
 }
 
 /// <summary>Session metadata read from session-store.db.</summary>
@@ -162,6 +182,7 @@ public sealed class SessionCheckpoint
 public sealed class AssistantUsageEvent
 {
     public string SessionId { get; set; } = "";
+    public string? Source { get; set; }
     public DateTimeOffset? Timestamp { get; set; }
     public string? ApiCallId { get; set; }
     public string? Model { get; set; }
@@ -188,6 +209,7 @@ public sealed class AssistantUsageEvent
 public sealed class SessionUsageSample
 {
     public string SessionId { get; set; } = "";
+    public string? Source { get; set; }
     public DateTimeOffset? Timestamp { get; set; }
     public long TokenLimit { get; set; }
     public long CurrentTokens { get; set; }
@@ -201,6 +223,7 @@ public sealed class SessionUsageSample
 public sealed class TurnBoundary
 {
     public string SessionId { get; set; } = "";
+    public string? Source { get; set; }
     public int TurnId { get; set; }
     public DateTimeOffset? Timestamp { get; set; }
 }
@@ -259,6 +282,7 @@ public sealed class SessionAnalysis
     public List<SessionUsageSample> ContextSamples { get; } = new();
     public List<SessionCheckpoint> Checkpoints { get; } = new();
     public List<Suggestion> Suggestions { get; } = new();
+    public SessionDataSources DataSources { get; set; } = new();
 
     public bool HasTelemetry => Timeline.Any(t => t.Actions.Count > 0);
 
@@ -306,6 +330,19 @@ public sealed class SessionAnalysis
                 DurationMs = g.Sum(a => a.DurationMs),
             })
             .OrderByDescending(m => m.Aiu);
+}
+
+public sealed class SessionDataSources
+{
+    public List<string> ConversationSources { get; set; } = new();
+    public List<string> TelemetrySources { get; set; } = new();
+    public List<string> MetadataSources { get; set; } = new();
+    public int ApiCallsInEvents { get; set; }
+    public int ApiCallsWithTelemetry { get; set; }
+    public int ToolCallsInEvents { get; set; }
+    public int ToolCallsWithTelemetry { get; set; }
+    public bool HasPartialTelemetry => ApiCallsInEvents > 0 && ApiCallsWithTelemetry < ApiCallsInEvents;
+    public bool HasTelemetry => ApiCallsWithTelemetry > 0;
 }
 
 public sealed class ModelBreakdown

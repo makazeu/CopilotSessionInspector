@@ -33,46 +33,47 @@ public sealed class SessionAnalysisService
         var turnCounts = _store.GetTurnCounts();
         var telemetry = _telemetry.GetAll();
 
-        var rows = new List<SessionSummaryRow>(sessions.Count);
-        foreach (var s in sessions)
-        {
-            telemetry.TryGetValue(s.Id, out var tele);
-            var usage = tele?.Usage ?? new List<AssistantUsageEvent>();
-            int turnCount = turnCounts.TryGetValue(s.Id, out var tc) ? tc : 0;
-            var events = _events.GetForSession(s.Id);
-            EnrichSessionFromEvents(s, events);
-            double sessionDurationMs = SessionDurationMs(events, tele, s);
-            var row = new SessionSummaryRow
+        var rows = sessions
+            .AsParallel()
+            .AsOrdered()
+            .WithDegreeOfParallelism(Math.Max(1, Environment.ProcessorCount - 1))
+            .Select(s =>
             {
-                Session = s,
-                TurnCount = turnCount,
-                ApiCallCount = usage.Count,
-                TotalTokens = usage.Sum(u => u.TotalTokens),
-                TotalAiu = usage.Sum(u => u.Aiu),
-                TotalCost = usage.Sum(u => u.Cost),
-                TotalApiDurationMs = usage.Sum(u => u.DurationMs),
-                SessionDurationMs = sessionDurationMs,
-                HasSessionDuration = sessionDurationMs > 0,
-                HasTelemetry = usage.Count > 0,
-            };
-
-            // Telemetry logs rotate/expire, but events.jsonl is the authoritative record. Fall
-            // back to it so the list mirrors what the detail page derives (turns, API calls,
-            // output tokens). AIU/cost/API-time need telemetry, so leave those blank when absent.
-            if (!row.HasTelemetry)
-            {
-                if (events.Count > 0)
+                telemetry.TryGetValue(s.Id, out var tele);
+                var usage = tele?.Usage ?? new List<AssistantUsageEvent>();
+                int turnCount = turnCounts.TryGetValue(s.Id, out var tc) ? tc : 0;
+                var eventSummary = _events.GetSummaryForSession(s.Id);
+                EnrichSessionFromSummary(s, eventSummary);
+                double sessionDurationMs = SessionDurationMs(eventSummary, tele, s);
+                var row = new SessionSummaryRow
                 {
-                    var msgs = events.Where(e => e.Type == "assistant.message").ToList();
+                    Session = s,
+                    TurnCount = turnCount,
+                    ApiCallCount = usage.Count,
+                    TotalTokens = usage.Sum(u => u.TotalTokens),
+                    TotalAiu = usage.Sum(u => u.Aiu),
+                    TotalCost = usage.Sum(u => u.Cost),
+                    TotalApiDurationMs = usage.Sum(u => u.DurationMs),
+                    SessionDurationMs = sessionDurationMs,
+                    HasSessionDuration = sessionDurationMs > 0,
+                    HasTelemetry = usage.Count > 0,
+                };
+
+                // Telemetry logs rotate/expire, but events.jsonl is the authoritative record. Fall
+                // back to it so the list mirrors what the detail page derives (turns, API calls,
+                // output tokens). AIU/cost/API-time need telemetry, so leave those blank when absent.
+                if (!row.HasTelemetry && eventSummary.HasEvents)
+                {
                     if (turnCount == 0)
-                        row.TurnCount = events.Count(e => e.Type == "user.message" && !string.IsNullOrWhiteSpace(e.Content));
-                    row.ApiCallCount = msgs.Count;
-                    row.TotalTokens = msgs.Sum(e => e.OutputTokens);
+                        row.TurnCount = eventSummary.UserMessageCount;
+                    row.ApiCallCount = eventSummary.AssistantMessageCount;
+                    row.TotalTokens = eventSummary.OutputTokens;
                 }
-            }
-            row.HasStats = row.HasTelemetry || row.ApiCallCount > 0 || row.TotalTokens > 0;
-            rows.Add(row);
-        }
+
+                row.HasStats = row.HasTelemetry || row.ApiCallCount > 0 || row.TotalTokens > 0;
+                return row;
+            })
+            .ToList();
 
         return rows
             // Hide empty sessions (no recorded turns and no token telemetry) — these are
@@ -91,7 +92,7 @@ public sealed class SessionAnalysisService
         var checkpoints = _store.GetCheckpoints(sessionId);
         var tele = _telemetry.GetForSession(sessionId);
         var events = _events.GetForSession(sessionId);
-        EnrichSessionFromEvents(session, events);
+        var metadataSources = EnrichSessionFromEvents(session, events);
 
         var analysis = new SessionAnalysis { Session = session };
         analysis.Checkpoints.AddRange(checkpoints);
@@ -106,27 +107,94 @@ public sealed class SessionAnalysisService
         analysis.SessionDurationMs = TimelineSessionDurationMs(analysis);
         if (analysis.SessionDurationMs <= 0)
             analysis.SessionDurationMs = SessionDurationMs(events, tele, session);
+        analysis.DataSources = BuildDataSources(events, tele, metadataSources);
         analysis.Suggestions.AddRange(GenerateSuggestions(analysis));
         return analysis;
     }
 
-    private static void EnrichSessionFromEvents(SessionInfo session, List<SessionEvent> events)
+    private static List<string> EnrichSessionFromEvents(SessionInfo session, List<SessionEvent> events)
     {
+        var sources = new List<string>();
         var context = events.FirstOrDefault(e => e.Type == "session.resume"
             && (!string.IsNullOrWhiteSpace(e.Cwd)
                 || !string.IsNullOrWhiteSpace(e.Repository)
                 || !string.IsNullOrWhiteSpace(e.Branch)
                 || !string.IsNullOrWhiteSpace(e.HostType)));
-        if (context is null) return;
+        if (context is null) return sources;
 
-        session.Cwd = Coalesce(session.Cwd, context.Cwd);
-        session.Repository = Coalesce(session.Repository, context.Repository);
-        session.Branch = Coalesce(session.Branch, context.Branch);
-        session.HostType = Coalesce(session.HostType, context.HostType);
+        var source = context.Source ?? "session.resume context";
+        if (string.IsNullOrWhiteSpace(session.Cwd) && !string.IsNullOrWhiteSpace(context.Cwd))
+        {
+            session.Cwd = context.Cwd;
+            sources.Add(source);
+        }
+        if (string.IsNullOrWhiteSpace(session.Repository) && !string.IsNullOrWhiteSpace(context.Repository))
+        {
+            session.Repository = context.Repository;
+            sources.Add(source);
+        }
+        if (string.IsNullOrWhiteSpace(session.Branch) && !string.IsNullOrWhiteSpace(context.Branch))
+        {
+            session.Branch = context.Branch;
+            sources.Add(source);
+        }
+        if (string.IsNullOrWhiteSpace(session.HostType) && !string.IsNullOrWhiteSpace(context.HostType))
+        {
+            session.HostType = context.HostType;
+            sources.Add(source);
+        }
+        return sources.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
     }
 
-    private static string? Coalesce(string? current, string? fallback)
-        => string.IsNullOrWhiteSpace(current) && !string.IsNullOrWhiteSpace(fallback) ? fallback : current;
+    private static void EnrichSessionFromSummary(SessionInfo session, SessionEventSummary summary)
+    {
+        if (!summary.HasEvents) return;
+        if (string.IsNullOrWhiteSpace(session.Cwd) && !string.IsNullOrWhiteSpace(summary.Cwd))
+            session.Cwd = summary.Cwd;
+        if (string.IsNullOrWhiteSpace(session.Repository) && !string.IsNullOrWhiteSpace(summary.Repository))
+            session.Repository = summary.Repository;
+        if (string.IsNullOrWhiteSpace(session.Branch) && !string.IsNullOrWhiteSpace(summary.Branch))
+            session.Branch = summary.Branch;
+        if (string.IsNullOrWhiteSpace(session.HostType) && !string.IsNullOrWhiteSpace(summary.HostType))
+            session.HostType = summary.HostType;
+    }
+
+    private static SessionDataSources BuildDataSources(List<SessionEvent> events, SessionTelemetry tele, List<string> metadataSources)
+    {
+        var eventApiIds = events
+            .Where(e => e.Type == "assistant.message" && !string.IsNullOrWhiteSpace(e.ApiCallId))
+            .Select(e => e.ApiCallId!)
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+        var telemetryApiIds = tele.Usage
+            .Where(u => !string.IsNullOrWhiteSpace(u.ApiCallId))
+            .Select(u => u.ApiCallId!)
+            .Distinct(StringComparer.Ordinal)
+            .ToHashSet(StringComparer.Ordinal);
+
+        return new SessionDataSources
+        {
+            ConversationSources = Sources(events.Select(e => e.Source)),
+            TelemetrySources = Sources(tele.Usage.Select(u => u.Source)
+                .Concat(tele.ToolCalls.Select(t => t.Source))
+                .Concat(tele.ContextSamples.Select(c => c.Source))),
+            MetadataSources = Sources(metadataSources),
+            ApiCallsInEvents = eventApiIds.Count,
+            ApiCallsWithTelemetry = eventApiIds.Count > 0
+                ? eventApiIds.Count(telemetryApiIds.Contains)
+                : tele.Usage.Count,
+            ToolCallsInEvents = events.Count(e => e.Type == "tool.execution_complete"),
+            ToolCallsWithTelemetry = tele.ToolCalls.Count,
+        };
+    }
+
+    private static List<string> Sources(IEnumerable<string?> sources) =>
+        sources
+            .Where(s => !string.IsNullOrWhiteSpace(s))
+            .Select(s => s!)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(s => s, StringComparer.OrdinalIgnoreCase)
+            .ToList();
 
     private static double TimelineSessionDurationMs(SessionAnalysis analysis)
     {
@@ -157,6 +225,22 @@ public sealed class SessionAnalysisService
             var duration = (eventTimes[^1] - eventTimes[0]).TotalMilliseconds;
             if (duration > 0) return duration;
         }
+
+        if (tele?.SessionDurationMs is > 0)
+            return tele.SessionDurationMs.Value;
+
+        if (session.CreatedAt.HasValue && session.UpdatedAt.HasValue)
+        {
+            var duration = (session.UpdatedAt.Value - session.CreatedAt.Value).TotalMilliseconds;
+            if (duration > 0) return duration;
+        }
+
+        return 0;
+    }
+
+    private static double SessionDurationMs(SessionEventSummary summary, SessionTelemetry? tele, SessionInfo session)
+    {
+        if (summary.SessionDurationMs > 0) return summary.SessionDurationMs;
 
         if (tele?.SessionDurationMs is > 0)
             return tele.SessionDurationMs.Value;
@@ -267,6 +351,7 @@ public sealed class SessionAnalysisService
                         ReasoningText = ev.ReasoningText,
                         Model = ev.Model,
                         ApiCallId = ev.ApiCallId,
+                        Source = ev.Source,
                         OutputTokens = ev.OutputTokens,
                         ToolRequestCount = ev.ToolRequests.Count,
                         ContentLength = ev.Content?.Length ?? 0,
@@ -284,6 +369,7 @@ public sealed class SessionAnalysisService
                         turn.Actions.Add(new AssistantUsageEvent
                         {
                             SessionId = analysis.Session.Id,
+                            Source = ev.Source,
                             Timestamp = ev.Timestamp,
                             ApiCallId = ev.ApiCallId,
                             Model = ev.Model,
@@ -298,6 +384,7 @@ public sealed class SessionAnalysisService
                         pendingTools[tr.ToolCallId!] = new ToolCallEvent
                         {
                             SessionId = analysis.Session.Id,
+                            Source = ev.Source,
                             Timestamp = ev.Timestamp,
                             ApiCallId = ev.ApiCallId,
                             ToolName = tr.Name,
@@ -316,6 +403,7 @@ public sealed class SessionAnalysisService
                         tc = new ToolCallEvent
                         {
                             SessionId = analysis.Session.Id,
+                            Source = ev.Source,
                             ApiCallId = ev.ApiCallId,
                             ToolName = ev.ToolName,
                             Model = ev.Model,
@@ -335,6 +423,7 @@ public sealed class SessionAnalysisService
                     tc ??= new ToolCallEvent
                     {
                         SessionId = analysis.Session.Id,
+                        Source = ev.Source,
                         Timestamp = ev.Timestamp,
                         ToolName = ev.ToolName,
                         Model = ev.Model,
@@ -384,6 +473,7 @@ public sealed class SessionAnalysisService
                         DurationMs = durationMs,
                         ResultLength = ev.ResultLength,
                         IsMcp = ev.IsMcp,
+                        Source = ev.Source,
                         Failed = ev.Success == false,
                         Model = tc.Model,
                     });
@@ -554,6 +644,7 @@ public sealed class SessionAnalysisService
                 ToolRequestCount = m.ToolRequestCount,
                 ContentLength = m.ContentLength,
                 Model = m.Model,
+                Source = m.Source,
             });
         }
         foreach (var c in tl.ToolCalls)
@@ -570,6 +661,7 @@ public sealed class SessionAnalysisService
                 ResultLength = c.ResultLength,
                 IsMcp = c.IsMcp,
                 Failed = c.Failed,
+                Source = c.Source,
             });
         }
         tl.Steps.Sort((x, y) => Nullable.Compare(x.Time, y.Time));

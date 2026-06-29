@@ -329,6 +329,61 @@ details.turn-card .turn-summary-label > strong { color: #1b2030; }
 .stat-card .text-muted::after { content: " \24D8"; color: #c2c7d2; font-size: 0.82em; }
 .stat-card .fs-6 { color: #111522; font-weight: 700; }
 
+/* Data provenance / coverage */
+.data-source-card {
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--surface);
+    box-shadow: var(--shadow-sm);
+    padding: 1rem 1.1rem;
+}
+.source-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: .8rem;
+}
+.source-grid strong {
+    display: block;
+    color: var(--muted);
+    font-size: .72rem;
+    letter-spacing: .035em;
+    text-transform: uppercase;
+    margin-bottom: .3rem;
+}
+.source-badge {
+    background: #eef0f6 !important;
+    color: #4b5563;
+    border: 1px solid #e1e4ec;
+    font-weight: 500;
+}
+.source-badge.agency {
+    background: #ecfeff !important;
+    color: #155e75;
+    border-color: #bae6fd;
+}
+.source-badge.copilot {
+    background: #f0fdf4 !important;
+    color: #166534;
+    border-color: #bbf7d0;
+}
+.coverage-pill {
+    padding: .28rem .65rem;
+    border-radius: 999px;
+    font-size: .82rem;
+    font-weight: 650;
+    white-space: nowrap;
+}
+.coverage-pill.complete {
+    background: #ecfdf5;
+    color: #047857;
+    border: 1px solid #bbf7d0;
+}
+.coverage-pill.partial {
+    background: #fff7ed;
+    color: #9a3412;
+    border: 1px solid #fed7aa;
+}
+
 /* The tooltip bubble + arrow (pure CSS, driven by data-tip) */
 .stat-card::after,
 .stat-card::before {

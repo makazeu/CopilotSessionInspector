@@ -48,6 +48,36 @@ else
         @Stat("Cache reads", a.CacheReadTokens.ToString("N0"), "Input tokens served from the prompt cache instead of being re-processed. Cache hits are cheaper and faster than uncached input tokens.")
     </div>
 
+    @* ---- Data provenance / coverage ---- *@
+    <div class="data-source-card my-3">
+        <div class="d-flex justify-content-between align-items-start gap-3 flex-wrap">
+            <div>
+                <h2 class="h6 mb-1">Data sources</h2>
+                <div class="small text-muted">Shows where this session's conversation, metadata, and usage telemetry were reconstructed from.</div>
+            </div>
+            <div class="coverage-pill @(a.DataSources.HasPartialTelemetry ? "partial" : "complete")">
+                @a.DataSources.ApiCallsWithTelemetry.ToString("N0") / @a.DataSources.ApiCallsInEvents.ToString("N0") API calls matched
+            </div>
+        </div>
+        <div class="source-grid mt-2">
+            <div><strong>Conversation</strong><div>@SourceBadges(a.DataSources.ConversationSources)</div></div>
+            <div><strong>Telemetry</strong><div>@SourceBadges(a.DataSources.TelemetrySources)</div></div>
+            <div><strong>Metadata</strong><div>@SourceBadges(a.DataSources.MetadataSources)</div></div>
+        </div>
+        @if (a.DataSources.HasPartialTelemetry)
+        {
+            <div class="alert alert-warning py-2 mt-2 mb-0 small">
+                Usage telemetry is partial, so AIU, premium cost, input tokens, and API time may be underestimated.
+            </div>
+        }
+        else if (!a.DataSources.HasTelemetry && a.DataSources.ApiCallsInEvents > 0)
+        {
+            <div class="alert alert-warning py-2 mt-2 mb-0 small">
+                No matching usage telemetry was found. Conversation and output-token data are available, but AIU/cost cannot be recovered exactly.
+            </div>
+        }
+    </div>
+
     @* ---- Suggestions ---- *@
     <h2 class="h5 mt-4">Cost-reduction suggestions</h2>
     @foreach (var s in a.Suggestions)
@@ -475,6 +505,33 @@ else
         builder.CloseElement();
         builder.CloseElement();
     };
+
+    private static RenderFragment SourceBadges(List<string> sources) => builder =>
+    {
+        if (sources.Count == 0)
+        {
+            builder.OpenElement(0, "span");
+            builder.AddAttribute(1, "class", "text-muted small");
+            builder.AddContent(2, "—");
+            builder.CloseElement();
+            return;
+        }
+
+        var seq = 0;
+        foreach (var source in sources)
+        {
+            builder.OpenElement(seq++, "span");
+            builder.AddAttribute(seq++, "class", $"badge source-badge {SourceClass(source)}");
+            builder.AddContent(seq++, source);
+            builder.CloseElement();
+            builder.AddContent(seq++, " ");
+        }
+    };
+
+    private static string SourceClass(string source)
+        => source.Contains("Agency", StringComparison.OrdinalIgnoreCase) ? "agency"
+            : source.Contains("Copilot", StringComparison.OrdinalIgnoreCase) ? "copilot"
+            : "";
 
     private static string AlertClass(string severity) => severity switch
     {

@@ -16,6 +16,10 @@ public sealed class CopilotPaths
     public string SessionStoreDb => Path.Combine(Root, "session-store.db");
     public string LogsDir => Path.Combine(Root, "logs");
     public string SessionStateDir => Path.Combine(Root, "session-state");
+    public string AgencyLogsDir => Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+        "agency",
+        "logs");
 
     public bool Exists => Directory.Exists(Root);
 }

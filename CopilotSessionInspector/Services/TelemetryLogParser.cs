@@ -1,11 +1,12 @@
 using System.Text;
 using System.Text.Json;
+using System.Collections.Concurrent;
 using CopilotSessionInspector.Models;
 
 namespace CopilotSessionInspector.Services;
 
 /// <summary>
-/// Scans ~/.copilot/logs/process-*.log and extracts pretty-printed telemetry JSON
+/// Scans ~/.copilot/logs/process-*.log and Agency's nested process logs, then extracts pretty-printed telemetry JSON
 /// blocks (assistant_usage, session_usage_info, assistant_turn_start, session_shutdown),
 /// grouping them by session_id. Results are cached until <see cref="Reload"/>.
 /// </summary>
@@ -54,31 +55,52 @@ public sealed class TelemetryLogParser
 
     private Dictionary<string, SessionTelemetry> ParseAllLogs()
     {
-        var result = new Dictionary<string, SessionTelemetry>(StringComparer.Ordinal);
-        if (!Directory.Exists(_paths.LogsDir))
-        {
-            _parsedAt = DateTimeOffset.Now;
-            return result;
-        }
+        var files = TelemetryLogFiles()
+            .GroupBy(f => f.Path, StringComparer.OrdinalIgnoreCase)
+            .Select(g => g.First())
+            .ToList();
+        var parsedFiles = new ConcurrentBag<Dictionary<string, SessionTelemetry>>();
+        var options = new ParallelOptions { MaxDegreeOfParallelism = Math.Max(1, Environment.ProcessorCount - 1) };
 
-        var files = Directory.EnumerateFiles(_paths.LogsDir, "*.log");
-        foreach (var file in files)
+        Parallel.ForEach(files, options, file =>
         {
             try
             {
-                ParseFile(file, result);
+                parsedFiles.Add(ParseFile(file.Path, file.Source));
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Failed parsing telemetry log {File}", file);
+                _logger.LogWarning(ex, "Failed parsing telemetry log {File}", file.Path);
             }
-        }
+        });
+
+        var result = new Dictionary<string, SessionTelemetry>(StringComparer.Ordinal);
+        foreach (var parsed in parsedFiles)
+            MergeTelemetry(result, parsed);
+
+        NormalizeTelemetry(result);
         _parsedAt = DateTimeOffset.Now;
         return result;
     }
 
-    private static void ParseFile(string file, Dictionary<string, SessionTelemetry> result)
+    private IEnumerable<(string Path, string Source)> TelemetryLogFiles()
     {
+        if (Directory.Exists(_paths.LogsDir))
+        {
+            foreach (var file in Directory.EnumerateFiles(_paths.LogsDir, "*.log"))
+                yield return (file, "Copilot logs");
+        }
+
+        if (Directory.Exists(_paths.AgencyLogsDir))
+        {
+            foreach (var file in Directory.EnumerateFiles(_paths.AgencyLogsDir, "process-*.log", SearchOption.AllDirectories))
+                yield return (file, "Agency logs");
+        }
+    }
+
+    private static Dictionary<string, SessionTelemetry> ParseFile(string file, string source)
+    {
+        var result = new Dictionary<string, SessionTelemetry>(StringComparer.Ordinal);
         using var reader = new StreamReader(file, Encoding.UTF8, detectEncodingFromByteOrderMarks: true,
             bufferSize: 1 << 16);
 
@@ -109,7 +131,7 @@ public sealed class TelemetryLogParser
             depth += NetBraceDelta(line);
             if (depth <= 0)
             {
-                HandleBlock(block.ToString(), lastTimestamp, result);
+                HandleBlock(block.ToString(), source, lastTimestamp, result);
                 block = null;
                 depth = 0;
             }
@@ -119,6 +141,29 @@ public sealed class TelemetryLogParser
                 block = null;
                 depth = 0;
             }
+        }
+
+        return result;
+    }
+
+    private static void MergeTelemetry(Dictionary<string, SessionTelemetry> target, Dictionary<string, SessionTelemetry> source)
+    {
+        foreach (var (sessionId, incoming) in source)
+        {
+            if (!target.TryGetValue(sessionId, out var existing))
+            {
+                target[sessionId] = incoming;
+                continue;
+            }
+
+            existing.Usage.AddRange(incoming.Usage);
+            existing.ContextSamples.AddRange(incoming.ContextSamples);
+            existing.TurnStarts.AddRange(incoming.TurnStarts);
+            existing.ToolCalls.AddRange(incoming.ToolCalls);
+            existing.Messages.AddRange(incoming.Messages);
+            existing.UserPrompts.AddRange(incoming.UserPrompts);
+            if (incoming.SessionDurationMs is > 0)
+                existing.SessionDurationMs = (existing.SessionDurationMs ?? 0) + incoming.SessionDurationMs.Value;
         }
     }
 
@@ -158,7 +203,7 @@ public sealed class TelemetryLogParser
             out var dto) ? dto : null;
     }
 
-    private static void HandleBlock(string json, DateTimeOffset? timestamp,
+    private static void HandleBlock(string json, string source, DateTimeOffset? timestamp,
         Dictionary<string, SessionTelemetry> result)
     {
         JsonDocument doc;
@@ -193,6 +238,7 @@ public sealed class TelemetryLogParser
                     tele.Usage.Add(new AssistantUsageEvent
                     {
                         SessionId = sessionId,
+                        Source = source,
                         Timestamp = time,
                         ApiCallId = Str(props, "api_call_id"),
                         Model = Str(props, "model"),
@@ -216,6 +262,7 @@ public sealed class TelemetryLogParser
                     tele.ToolCalls.Add(new ToolCallEvent
                     {
                         SessionId = sessionId,
+                        Source = source,
                         Timestamp = time,
                         TurnId = IntFromString(Str(props, "turn_id")),
                         ApiCallId = Str(props, "api_call_id"),
@@ -234,6 +281,7 @@ public sealed class TelemetryLogParser
                     tele.Messages.Add(new AssistantMessageEvent
                     {
                         SessionId = sessionId,
+                        Source = source,
                         Timestamp = time,
                         TurnId = IntFromString(Str(props, "turn_id")),
                         ApiCallId = Str(props, "api_call_id"),
@@ -249,6 +297,7 @@ public sealed class TelemetryLogParser
                     tele.UserPrompts.Add(new UserPromptEvent
                     {
                         SessionId = sessionId,
+                        Source = source,
                         Timestamp = time,
                         ContentLength = (int)Long(metrics, "content_length"),
                         AgentMode = Str(props, "agent_mode"),
@@ -259,6 +308,7 @@ public sealed class TelemetryLogParser
                     tele.ContextSamples.Add(new SessionUsageSample
                     {
                         SessionId = sessionId,
+                        Source = source,
                         Timestamp = time,
                         TokenLimit = Long(metrics, "token_limit"),
                         CurrentTokens = Long(metrics, "current_tokens"),
@@ -273,6 +323,7 @@ public sealed class TelemetryLogParser
                     tele.TurnStarts.Add(new TurnBoundary
                     {
                         SessionId = sessionId,
+                        Source = source,
                         TurnId = IntFromString(Str(props, "turn_id")),
                         Timestamp = time,
                     });
@@ -284,6 +335,67 @@ public sealed class TelemetryLogParser
                     break;
             }
         }
+    }
+
+    private static void NormalizeTelemetry(Dictionary<string, SessionTelemetry> result)
+    {
+        foreach (var tele in result.Values)
+        {
+            var usage = tele.Usage
+                .Select((u, i) => (Usage: u, Index: i))
+                .GroupBy(x => !string.IsNullOrWhiteSpace(x.Usage.ApiCallId)
+                    ? $"api:{x.Usage.ApiCallId}"
+                    : $"time:{x.Usage.Timestamp:o}:{x.Usage.Model}:{x.Usage.OutputTokens}:{x.Index}")
+                .Select(g =>
+                {
+                    var best = g.Select(x => x.Usage)
+                        .OrderByDescending(UsageScore)
+                        .ThenBy(u => string.Equals(u.Source, "Agency logs", StringComparison.OrdinalIgnoreCase) ? 1 : 0)
+                        .First();
+                    best.Source = JoinSources(g.Select(x => x.Usage.Source));
+                    return best;
+                })
+                .OrderBy(u => u.Timestamp ?? DateTimeOffset.MaxValue)
+                .ToList();
+            tele.Usage.Clear();
+            tele.Usage.AddRange(usage);
+
+            var toolCalls = tele.ToolCalls
+                .GroupBy(ToolKey)
+                .Select(g =>
+                {
+                    var best = g.OrderByDescending(t => (t.DurationMs > 0 ? 1 : 0) + (t.ResultLength > 0 ? 1 : 0)).First();
+                    best.Source = JoinSources(g.Select(t => t.Source));
+                    return best;
+                })
+                .OrderBy(t => t.Timestamp ?? DateTimeOffset.MaxValue)
+                .ToList();
+            tele.ToolCalls.Clear();
+            tele.ToolCalls.AddRange(toolCalls);
+        }
+    }
+
+    private static int UsageScore(AssistantUsageEvent usage)
+        => (usage.TotalNanoAiu > 0 ? 8 : 0)
+            + (usage.Cost > 0 ? 4 : 0)
+            + (usage.InputTokens > 0 ? 2 : 0)
+            + (usage.OutputTokens > 0 ? 1 : 0)
+            + (usage.DurationMs > 0 ? 1 : 0);
+
+    private static string ToolKey(ToolCallEvent tool)
+        => !string.IsNullOrWhiteSpace(tool.ApiCallId)
+            ? $"api:{tool.ApiCallId}:{tool.ToolName}:{tool.Timestamp?.ToUnixTimeMilliseconds()}"
+            : $"time:{tool.Timestamp?.ToUnixTimeMilliseconds()}:{tool.ToolName}:{tool.Arguments}:{tool.ResultType}";
+
+    private static string? JoinSources(IEnumerable<string?> sources)
+    {
+        var distinct = sources
+            .Where(s => !string.IsNullOrWhiteSpace(s))
+            .Select(s => s!)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(s => s, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        return distinct.Count == 0 ? null : string.Join(" + ", distinct);
     }
 
     private static string? Str(JsonElement parent, string name)
