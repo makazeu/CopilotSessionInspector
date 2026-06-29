@@ -147,8 +147,41 @@ else
             <button type="button" class="btn btn-outline-secondary" @onclick="() => SetAllTurns(false)">Collapse all</button>
         </div>
     </div>
-    @foreach (var t in a.Timeline)
+    <div class="timeline-filter-bar mb-3">
+        <div class="filter-field">
+            <label for="toolTypeFilter">Tool type</label>
+            <select id="toolTypeFilter" class="form-select form-select-sm" @bind="_toolNameFilter">
+                <option value="">All tools</option>
+                @foreach (var toolName in ToolNames(a))
+                {
+                    <option value="@toolName">@toolName</option>
+                }
+            </select>
+        </div>
+        <div class="filter-field">
+            <label for="toolStatusFilter">Status</label>
+            <select id="toolStatusFilter" class="form-select form-select-sm" @bind="_toolStatusFilter">
+                <option value="">All statuses</option>
+                <option value="success">Success</option>
+                <option value="failed">Failed</option>
+            </select>
+        </div>
+        <div class="filter-summary">
+            Showing @FilteredToolCount(a).ToString("N0") of @a.TotalToolCalls.ToString("N0") tool calls
+        </div>
+        @if (IsToolFilterActive)
+        {
+            <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="ClearToolFilters">Clear filters</button>
+        }
+    </div>
+    var visibleTurns = VisibleTurns(a).ToList();
+    @if (visibleTurns.Count == 0)
     {
+        <div class="alert alert-secondary">No tool calls match the selected filters.</div>
+    }
+    @foreach (var t in visibleTurns)
+    {
+        var visibleSteps = VisibleSteps(t).ToList();
         <details class="card mb-3 turn-card">
             <summary class="card-header d-flex justify-content-between align-items-center py-2">
                 <span class="turn-summary-label">
@@ -160,7 +193,14 @@ else
                     }
                 </span>
                 <span class="small text-muted text-nowrap ms-2">
-                    @t.AgentMessageCount reply(ies) · @t.ToolCallCount tool(s)
+                    @if (IsToolFilterActive)
+                    {
+                        <text>@visibleSteps.Count(s => s.IsTool) matching tool(s)</text>
+                    }
+                    else
+                    {
+                        <text>@t.AgentMessageCount reply(ies) · @t.ToolCallCount tool(s)</text>
+                    }
                     @if (t.Actions.Count > 0)
                     {
                         <text> · @t.Aiu.ToString("N1") AIU · @FormatDuration(t.DurationMs)</text>
@@ -179,10 +219,17 @@ else
                 {
                     <div class="mb-2">
                         <div class="small text-muted mb-1">
-                            Conversation — @t.AgentMessageCount agent reply(ies), @t.ToolCallCount tool call(s)
+                            @if (IsToolFilterActive)
+                            {
+                                <text>Filtered tools — @visibleSteps.Count(s => s.IsTool) matching tool call(s)</text>
+                            }
+                            else
+                            {
+                                <text>Conversation — @t.AgentMessageCount agent reply(ies), @t.ToolCallCount tool call(s)</text>
+                            }
                         </div>
                         <ul class="op-list">
-                            @foreach (var step in t.Steps)
+                            @foreach (var step in visibleSteps)
                             {
                                 @if (step.IsTool)
                                 {
@@ -325,14 +372,60 @@ else
     private SessionAnalysis? _analysis;
     private bool _loading = true;
     private bool _chartsRendered;
+    private string _toolNameFilter = "";
+    private string _toolStatusFilter = "";
 
     private async Task SetAllTurns(bool open)
         => await JS.InvokeVoidAsync("copilotUi.setAllTurns", open);
+
+    private bool IsToolFilterActive =>
+        !string.IsNullOrWhiteSpace(_toolNameFilter) || !string.IsNullOrWhiteSpace(_toolStatusFilter);
+
+    private void ClearToolFilters()
+    {
+        _toolNameFilter = "";
+        _toolStatusFilter = "";
+    }
+
+    private static IEnumerable<string> ToolNames(SessionAnalysis analysis) =>
+        analysis.Timeline
+            .SelectMany(t => t.Steps)
+            .Where(s => s.IsTool && !string.IsNullOrWhiteSpace(s.ToolName))
+            .Select(s => s.ToolName!)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(s => s, StringComparer.OrdinalIgnoreCase);
+
+    private IEnumerable<TimelineTurn> VisibleTurns(SessionAnalysis analysis)
+    {
+        if (!IsToolFilterActive) return analysis.Timeline;
+        return analysis.Timeline.Where(t => t.Steps.Any(s => s.IsTool && MatchesToolFilter(s)));
+    }
+
+    private IEnumerable<TurnStep> VisibleSteps(TimelineTurn turn) =>
+        IsToolFilterActive ? turn.Steps.Where(s => s.IsTool && MatchesToolFilter(s)) : turn.Steps;
+
+    private int FilteredToolCount(SessionAnalysis analysis) =>
+        analysis.Timeline.SelectMany(t => t.Steps).Count(s => s.IsTool && MatchesToolFilter(s));
+
+    private bool MatchesToolFilter(TurnStep step)
+    {
+        if (!string.IsNullOrWhiteSpace(_toolNameFilter)
+            && !string.Equals(step.ToolName, _toolNameFilter, StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        return _toolStatusFilter switch
+        {
+            "success" => !step.Failed,
+            "failed" => step.Failed,
+            _ => true,
+        };
+    }
 
     protected override async Task OnParametersSetAsync()
     {
         _loading = true;
         _chartsRendered = false;
+        ClearToolFilters();
         _analysis = await Task.Run(() => Analysis.Analyze(Id));
         _loading = false;
     }

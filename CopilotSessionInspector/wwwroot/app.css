@@ -261,6 +261,35 @@ ul.op-list .op-detail { margin-top: 2px; }
 ul.op-list .op-detail > summary { cursor: pointer; }
 
 /* Collapsible turn cards */
+.timeline-filter-bar {
+    display: flex;
+    align-items: end;
+    flex-wrap: wrap;
+    gap: .75rem;
+    padding: .85rem 1rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--surface);
+    box-shadow: var(--shadow-sm);
+}
+.timeline-filter-bar .filter-field {
+    min-width: 12rem;
+}
+.timeline-filter-bar label {
+    display: block;
+    margin-bottom: .25rem;
+    color: var(--muted);
+    font-size: .76rem;
+    font-weight: 600;
+    letter-spacing: .025em;
+    text-transform: uppercase;
+}
+.timeline-filter-bar .filter-summary {
+    color: var(--muted);
+    font-size: .86rem;
+    margin-bottom: .25rem;
+}
+
 details.turn-card { overflow: hidden; }
 details.turn-card > summary.card-header {
     cursor: pointer;
