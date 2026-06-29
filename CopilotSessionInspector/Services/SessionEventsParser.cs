@@ -177,6 +177,11 @@ public sealed class SessionEventsParser
                         if (turnStart.HasValue && timestamp.HasValue)
                             lastInTurn = timestamp.Value;
                     }
+                    else if (type == "skill.invoked")
+                    {
+                        if (turnStart.HasValue && timestamp.HasValue)
+                            lastInTurn = timestamp.Value;
+                    }
                 }
             }
         }
@@ -325,6 +330,15 @@ public sealed class SessionEventsParser
                             });
                         }
                     }
+                    break;
+
+                case "skill.invoked":
+                    ev.SkillName = Str(data, "name");
+                    ev.SkillPath = Str(data, "path");
+                    ev.SkillSource = Str(data, "source");
+                    ev.PluginName = Str(data, "pluginName");
+                    ev.SkillDescription = Str(data, "description");
+                    ev.SkillTrigger = Str(data, "trigger");
                     break;
 
                 case "tool.execution_start":

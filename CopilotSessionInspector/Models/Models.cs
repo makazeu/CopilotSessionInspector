@@ -51,6 +51,7 @@ public sealed class TurnStep
 {
     public DateTimeOffset? Time { get; set; }
     public bool IsTool { get; set; }
+    public bool IsSkill { get; set; }
 
     // Tool execution
     public string? ToolName { get; set; }
@@ -78,6 +79,14 @@ public sealed class TurnStep
     public string? ErrorMessage { get; set; }   // failure reason (tool.execution_complete.error.message)
     public string? ErrorCode { get; set; }      // failure code (…error.code)
     public string? Source { get; set; }
+
+    // Skill invocation
+    public string? SkillName { get; set; }
+    public string? SkillPath { get; set; }
+    public string? SkillSource { get; set; }
+    public string? PluginName { get; set; }
+    public string? SkillDescription { get; set; }
+    public string? SkillTrigger { get; set; }
 }
 
 /// <summary>A request to invoke a tool, embedded in an assistant.message.</summary>
@@ -119,6 +128,14 @@ public sealed class SessionEvent
     public double DurationMs { get; set; }
     public long ResultLength { get; set; }
     public bool IsMcp { get; set; }
+
+    // skill.invoked
+    public string? SkillName { get; set; }
+    public string? SkillPath { get; set; }
+    public string? SkillSource { get; set; }
+    public string? PluginName { get; set; }
+    public string? SkillDescription { get; set; }
+    public string? SkillTrigger { get; set; }
 
     // session.resume context metadata
     public string? Cwd { get; set; }
@@ -261,7 +278,8 @@ public sealed class TimelineTurn
     public double DurationMs => Actions.Sum(a => a.DurationMs);
     public double ToolDurationMs => ToolCalls.Sum(t => t.DurationMs);
     public int ToolCallCount => ToolCalls.Count;
-    public int AgentMessageCount => Steps.Count(s => !s.IsTool);
+    public int AgentMessageCount => Steps.Count(s => !s.IsTool && !s.IsSkill);
+    public int SkillInvocationCount => Steps.Count(s => s.IsSkill);
     public IEnumerable<string> Models => Actions.Select(a => a.Model ?? "?").Distinct();
     public IEnumerable<IGrouping<string, ToolCallEvent>> ToolsByName =>
         ToolCalls.GroupBy(t => t.ToolName ?? "?").OrderByDescending(g => g.Count());

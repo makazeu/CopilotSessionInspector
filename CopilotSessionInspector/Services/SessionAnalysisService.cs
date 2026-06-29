@@ -298,7 +298,7 @@ public sealed class SessionAnalysisService
     }
 
     private static bool IsTurnActivityEvent(SessionEvent ev) =>
-        ev.Type is "assistant.message" or "tool.execution_complete";
+        ev.Type is "assistant.message" or "tool.execution_complete" or "skill.invoked";
 
     /// <summary>
     /// Reconstructs the timeline from <c>events.jsonl</c> — the authoritative, fully-ordered
@@ -399,6 +399,25 @@ public sealed class SessionAnalysisService
                             Model = ev.Model,
                         };
                     }
+                    break;
+                }
+
+                case "skill.invoked":
+                {
+                    var turn = EnsureTurn(ev.Timestamp);
+                    if (ev.Timestamp is not null) turn.EndTime = ev.Timestamp;
+                    turn.Steps.Add(new TurnStep
+                    {
+                        Time = ev.Timestamp,
+                        IsSkill = true,
+                        SkillName = ev.SkillName,
+                        SkillPath = ev.SkillPath,
+                        SkillSource = ev.SkillSource,
+                        PluginName = ev.PluginName,
+                        SkillDescription = ev.SkillDescription,
+                        SkillTrigger = ev.SkillTrigger,
+                        Source = ev.Source,
+                    });
                     break;
                 }
 

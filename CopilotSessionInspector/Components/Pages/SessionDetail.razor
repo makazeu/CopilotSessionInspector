@@ -143,25 +143,27 @@ else
 
         @if (a.TotalToolCalls > 0)
         {
-            <h2 class="h5 mt-2">Tools / operations used</h2>
-            <div class="table-responsive">
-            <table class="table table-sm">
-                <thead><tr>
-                    <th>Tool</th><th class="text-end">Calls</th><th class="text-end">Failures</th><th class="text-end">Time</th>
-                </tr></thead>
-                <tbody>
-                    @foreach (var tb in a.ToolBreakdowns)
-                    {
-                        <tr>
-                            <td class="font-monospace">@tb.ToolName</td>
-                            <td class="text-end">@tb.Calls</td>
-                            <td class="text-end">@(tb.Failures > 0 ? tb.Failures.ToString() : "—")</td>
-                            <td class="text-end">@FormatDuration(tb.DurationMs)</td>
-                        </tr>
-                    }
-                </tbody>
-            </table>
-            </div>
+            <details class="mt-2">
+                <summary class="h5 tool-breakdown-summary">Tools / operations used</summary>
+                <div class="table-responsive mt-2">
+                <table class="table table-sm">
+                    <thead><tr>
+                        <th>Tool</th><th class="text-end">Calls</th><th class="text-end">Failures</th><th class="text-end">Time</th>
+                    </tr></thead>
+                    <tbody>
+                        @foreach (var tb in a.ToolBreakdowns)
+                        {
+                            <tr>
+                                <td class="font-monospace">@tb.ToolName</td>
+                                <td class="text-end">@tb.Calls</td>
+                                <td class="text-end">@(tb.Failures > 0 ? tb.Failures.ToString() : "—")</td>
+                                <td class="text-end">@FormatDuration(tb.DurationMs)</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+                </div>
+            </details>
         }
     }
     else
@@ -230,6 +232,7 @@ else
                     else
                     {
                         <text>@t.AgentMessageCount reply(ies) · @t.ToolCallCount tool(s)</text>
+                        @if (t.SkillInvocationCount > 0) { <text> · @t.SkillInvocationCount skill(s)</text> }
                     }
                     @if (t.Actions.Count > 0)
                     {
@@ -256,6 +259,7 @@ else
                             else
                             {
                                 <text>Conversation — @t.AgentMessageCount agent reply(ies), @t.ToolCallCount tool call(s)</text>
+                                @if (t.SkillInvocationCount > 0) { <text>, @t.SkillInvocationCount skill invocation(s)</text> }
                             }
                         </div>
                         <ul class="op-list">
@@ -308,6 +312,29 @@ else
                                                 <summary class="small text-muted">tool result</summary>
                                                 <pre class="conv result mt-1">@TruncateRaw(step.ResultContent, 4000)</pre>
                                             </details>
+                                        }
+                                    </li>
+                                }
+                                else if (step.IsSkill)
+                                {
+                                    <li class="op-skill">
+                                        <div class="op-row">
+                                            <span class="op-time">@step.Time?.ToLocalTime().ToString("HH:mm:ss")</span>
+                                            <span class="badge bg-info text-dark">Skill</span>
+                                            <span class="font-monospace">@step.SkillName</span>
+                                            <span class="op-meta">
+                                                @if (!string.IsNullOrWhiteSpace(step.PluginName)) { <text>@step.PluginName</text> }
+                                                @if (!string.IsNullOrWhiteSpace(step.SkillSource)) { <text> · @step.SkillSource</text> }
+                                                @if (!string.IsNullOrWhiteSpace(step.SkillTrigger)) { <text> · @step.SkillTrigger</text> }
+                                            </span>
+                                        </div>
+                                        @if (!string.IsNullOrWhiteSpace(step.SkillDescription))
+                                        {
+                                            <div class="small text-muted mt-1">@step.SkillDescription</div>
+                                        }
+                                        @if (!string.IsNullOrWhiteSpace(step.SkillPath))
+                                        {
+                                            <div class="small text-muted font-monospace mt-1">@step.SkillPath</div>
                                         }
                                     </li>
                                 }
