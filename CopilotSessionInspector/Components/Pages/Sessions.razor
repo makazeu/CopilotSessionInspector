@@ -48,6 +48,7 @@ else
     <table class="table table-sm table-hover align-middle">
         <thead>
             <tr>
+                <th></th>
                 <th>Session</th>
                 <th>Repo / Dir</th>
                 <th>Updated</th>
@@ -57,13 +58,13 @@ else
                 <th class="text-end">AIU</th>
                 <th class="text-end">Cost</th>
                 <th class="text-end">Session time</th>
-                <th></th>
             </tr>
         </thead>
         <tbody>
             @foreach (var r in _rows)
             {
                 <tr class="session-row" title="Double-click to inspect this session" @ondblclick="@(() => OpenSession(r.Session.Id))">
+                    <td><a class="btn btn-sm btn-outline-primary" href="@($"session/{r.Session.Id}")">Inspect</a></td>
                     <td>
                         <div class="fw-semibold">@Truncate(r.Session.DisplayName, 60)</div>
                         <div class="text-muted small font-monospace">@r.Session.Id</div>
@@ -76,7 +77,6 @@ else
                     <td class="text-end">@(r.HasTelemetry ? r.TotalAiu.ToString("N1") : "—")</td>
                     <td class="text-end">@(r.HasTelemetry ? r.TotalCost.ToString("N1") : "—")</td>
                     <td class="text-end">@(r.HasSessionDuration ? FormatDuration(r.SessionDurationMs) : "—")</td>
-                    <td><a class="btn btn-sm btn-outline-primary" href="@($"session/{r.Session.Id}")">Inspect</a></td>
                 </tr>
             }
         </tbody>

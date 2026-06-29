@@ -97,5 +97,9 @@ window.copilotUi = {
         document.querySelectorAll('details.turn-card').forEach(function (d) {
             d.open = open;
         });
+    },
+
+    scrollToTop: function () {
+        window.scrollTo({ top: 0, behavior: 'smooth' });
     }
 };

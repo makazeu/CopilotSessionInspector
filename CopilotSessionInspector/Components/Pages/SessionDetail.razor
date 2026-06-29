@@ -215,7 +215,7 @@ else
     {
         var visibleSteps = VisibleSteps(t).ToList();
         <details class="card mb-3 turn-card">
-            <summary class="card-header d-flex justify-content-between align-items-center py-2">
+            <summary class="card-header d-flex justify-content-between align-items-start py-2">
                 <span class="turn-summary-label">
                     <strong>Turn @t.TurnIndex</strong>
                     @if (t.StartTime is not null) { <span class="text-muted small ms-2">@t.StartTime?.ToLocalTime().ToString("g")</span> }
@@ -275,7 +275,7 @@ else
                                     <li class="op-tool @(step.Failed ? "failed" : "")">
                                         <div class="op-row">
                                             <span class="op-time">@step.Time?.ToLocalTime().ToString("HH:mm:ss")</span>
-                                            <span class="badge @(step.Failed ? "bg-danger" : "bg-secondary")">@step.ToolName</span>
+                                            <span class="badge @(step.Failed ? "bg-danger" : "bg-secondary")">@ToolIcon(step.ToolName) @step.ToolName</span>
                                             @if (step.IsMcp) { <span class="badge bg-info text-dark">MCP</span> }
                                             @if (hasMore)
                                             {
@@ -566,6 +566,31 @@ else
         "warning" => "alert-warning",
         _ => "alert-info",
     };
+
+    private static string ToolIcon(string? toolName)
+    {
+        if (string.IsNullOrWhiteSpace(toolName)) return "🔧";
+        return toolName switch
+        {
+            var t when t.Contains("powershell", StringComparison.OrdinalIgnoreCase) => "💻",
+            var t when t.Equals("bash", StringComparison.OrdinalIgnoreCase) => "💻",
+            var t when t.Equals("view", StringComparison.OrdinalIgnoreCase) || t.Equals("read", StringComparison.OrdinalIgnoreCase) => "📄",
+            var t when t.Equals("edit", StringComparison.OrdinalIgnoreCase) || t.Equals("str_replace", StringComparison.OrdinalIgnoreCase) => "✏️",
+            var t when t.Equals("create", StringComparison.OrdinalIgnoreCase) => "📝",
+            var t when t.Equals("glob", StringComparison.OrdinalIgnoreCase) => "🗂️",
+            var t when t.Equals("grep", StringComparison.OrdinalIgnoreCase) || t.Equals("rg", StringComparison.OrdinalIgnoreCase) => "🔎",
+            var t when t.Equals("web_fetch", StringComparison.OrdinalIgnoreCase) => "🌐",
+            var t when t.Equals("web_search", StringComparison.OrdinalIgnoreCase) => "🔍",
+            var t when t.Equals("task", StringComparison.OrdinalIgnoreCase) => "🤖",
+            var t when t.Equals("ask_user", StringComparison.OrdinalIgnoreCase) => "❓",
+            var t when t.Equals("apply_patch", StringComparison.OrdinalIgnoreCase) => "🩹",
+            var t when t.Equals("task_complete", StringComparison.OrdinalIgnoreCase) => "✅",
+            var t when t.Contains("sql", StringComparison.OrdinalIgnoreCase) => "🗄️",
+            var t when t.Contains("memory", StringComparison.OrdinalIgnoreCase) => "🧠",
+            var t when t.Contains("github", StringComparison.OrdinalIgnoreCase) => "🐙",
+            _ => "🔧",
+        };
+    }
 
     private static string Truncate(string? s, int n)
     {
