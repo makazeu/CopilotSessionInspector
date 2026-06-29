@@ -337,6 +337,20 @@ details.turn-card .turn-summary-label > strong { color: #1b2030; }
     box-shadow: var(--shadow-sm);
     padding: 1rem 1.1rem;
 }
+.data-source-card > summary {
+    cursor: pointer;
+    list-style: none;
+}
+.data-source-card > summary::-webkit-details-marker { display: none; }
+.data-source-card > summary h2::before {
+    content: "\25B6";
+    display: inline-block;
+    margin-right: .45rem;
+    font-size: .75rem;
+    color: var(--brand);
+    transition: transform .15s ease;
+}
+.data-source-card[open] > summary h2::before { transform: rotate(90deg); }
 .source-grid {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));

@@ -124,6 +124,23 @@ public sealed class SessionStoreService
         return map;
     }
 
+    public Dictionary<string, int> GetContentTurnCounts()
+    {
+        var map = new Dictionary<string, int>();
+        if (!DatabaseExists) return map;
+        using var con = OpenReadOnly();
+        using var cmd = con.CreateCommand();
+        cmd.CommandText = @"
+            SELECT session_id, COUNT(*)
+            FROM turns
+            WHERE NULLIF(TRIM(COALESCE(assistant_response, '')), '') IS NOT NULL
+            GROUP BY session_id";
+        using var r = cmd.ExecuteReader();
+        while (r.Read())
+            map[r.GetString(0)] = r.GetInt32(1);
+        return map;
+    }
+
     public List<SessionCheckpoint> GetCheckpoints(string sessionId)
     {
         var list = new List<SessionCheckpoint>();

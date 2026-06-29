@@ -49,8 +49,8 @@ else
     </div>
 
     @* ---- Data provenance / coverage ---- *@
-    <div class="data-source-card my-3">
-        <div class="d-flex justify-content-between align-items-start gap-3 flex-wrap">
+    <details class="data-source-card my-3">
+        <summary class="d-flex justify-content-between align-items-start gap-3 flex-wrap">
             <div>
                 <h2 class="h6 mb-1">Data sources</h2>
                 <div class="small text-muted">Shows where this session's conversation, metadata, and usage telemetry were reconstructed from.</div>
@@ -58,7 +58,7 @@ else
             <div class="coverage-pill @(a.DataSources.HasPartialTelemetry ? "partial" : "complete")">
                 @a.DataSources.ApiCallsWithTelemetry.ToString("N0") / @a.DataSources.ApiCallsInEvents.ToString("N0") API calls matched
             </div>
-        </div>
+        </summary>
         <div class="source-grid mt-2">
             <div><strong>Conversation</strong><div>@SourceBadges(a.DataSources.ConversationSources)</div></div>
             <div><strong>Telemetry</strong><div>@SourceBadges(a.DataSources.TelemetrySources)</div></div>
@@ -76,7 +76,7 @@ else
                 No matching usage telemetry was found. Conversation and output-token data are available, but AIU/cost cannot be recovered exactly.
             </div>
         }
-    </div>
+    </details>
 
     @* ---- Suggestions ---- *@
     <h2 class="h5 mt-4">Cost-reduction suggestions</h2>

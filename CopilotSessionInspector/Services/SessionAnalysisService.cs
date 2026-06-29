@@ -31,6 +31,7 @@ public sealed class SessionAnalysisService
     {
         var sessions = _store.GetSessions();
         var turnCounts = _store.GetTurnCounts();
+        var contentTurnCounts = _store.GetContentTurnCounts();
         var telemetry = _telemetry.GetAll();
 
         var rows = sessions
@@ -42,6 +43,7 @@ public sealed class SessionAnalysisService
                 telemetry.TryGetValue(s.Id, out var tele);
                 var usage = tele?.Usage ?? new List<AssistantUsageEvent>();
                 int turnCount = turnCounts.TryGetValue(s.Id, out var tc) ? tc : 0;
+                int contentTurnCount = contentTurnCounts.TryGetValue(s.Id, out var ctc) ? ctc : 0;
                 var eventSummary = _events.GetSummaryForSession(s.Id);
                 EnrichSessionFromSummary(s, eventSummary);
                 double sessionDurationMs = SessionDurationMs(eventSummary, tele, s);
@@ -71,14 +73,19 @@ public sealed class SessionAnalysisService
                 }
 
                 row.HasStats = row.HasTelemetry || row.ApiCallCount > 0 || row.TotalTokens > 0;
+                row.HasActualContent = eventSummary.HasEvents
+                    ? eventSummary.AssistantMessageCount > 0
+                        || eventSummary.ToolExecutionCount > 0
+                        || eventSummary.OutputTokens > 0
+                    : contentTurnCount > 0 || row.HasStats;
                 return row;
             })
             .ToList();
 
         return rows
-            // Hide empty sessions (no recorded turns and no token telemetry) — these are
-            // usually aborted/never-used sessions that only carry a folder-name label.
-            .Where(r => r.TurnCount > 0 || r.HasStats)
+            // Hide sessions with no real conversation/tool content. Some aborted sessions
+            // have only metadata or folder labels and should not clutter the list.
+            .Where(r => r.HasActualContent)
             .OrderByDescending(r => r.Session.UpdatedAt ?? r.Session.CreatedAt ?? DateTimeOffset.MinValue)
             .ToList();
     }

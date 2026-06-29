@@ -378,4 +378,5 @@ public sealed class SessionSummaryRow
     public bool HasSessionDuration { get; set; }
     public bool HasTelemetry { get; set; }
     public bool HasStats { get; set; }
+    public bool HasActualContent { get; set; }
 }
