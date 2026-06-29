@@ -218,6 +218,7 @@ public sealed class TimelineTurn
     public string? UserMessage { get; set; }
     public string? AssistantResponse { get; set; }
     public DateTimeOffset? StartTime { get; set; }
+    public DateTimeOffset? EndTime { get; set; }
     public List<AssistantUsageEvent> Actions { get; } = new();
     public List<ToolCallEvent> ToolCalls { get; } = new();
     public List<TurnStep> Steps { get; } = new();
@@ -261,6 +262,7 @@ public sealed class SessionAnalysis
     public long TotalTokens => Timeline.Sum(t => t.TotalTokens);
     public double TotalAiu => Timeline.Sum(t => t.Aiu);
     public double TotalCost => Timeline.Sum(t => t.Cost);
+    public double SessionDurationMs { get; set; }
     public double TotalApiDurationMs => Timeline.Sum(t => t.DurationMs);
     public int ApiCallCount => Timeline.Sum(t => t.Actions.Count);
     public int TurnCount => Timeline.Count;
@@ -329,5 +331,8 @@ public sealed class SessionSummaryRow
     public double TotalAiu { get; set; }
     public double TotalCost { get; set; }
     public double TotalApiDurationMs { get; set; }
+    public double SessionDurationMs { get; set; }
+    public bool HasSessionDuration { get; set; }
     public bool HasTelemetry { get; set; }
+    public bool HasStats { get; set; }
 }

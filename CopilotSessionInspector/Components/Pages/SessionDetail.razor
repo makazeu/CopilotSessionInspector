@@ -40,6 +40,7 @@ else
         @Stat("Reasoning tokens", a.TotalReasoningTokens.ToString("N0"), "Tokens the model spent on internal chain-of-thought before producing its answer. Billed as output but not shown in the visible reply.")
         @Stat("AI units (AIU)", a.TotalAiu.ToString("N1"), "AI Units consumed — a fine-grained usage metric from telemetry (total_nano_aiu ÷ 1,000,000,000), summed over all API calls.")
         @Stat("Premium cost", a.TotalCost.ToString("N1"), "GitHub Copilot premium-request quota consumed (the metered billing unit), summed from each call's telemetry cost. Each model has a multiplier; this is NOT a dollar amount.")
+        @Stat("Session time", a.SessionDurationMs > 0 ? FormatDuration(a.SessionDurationMs) : "—", "Sum of each turn's elapsed time, from your prompt to the last recorded agent/tool event in that turn. Excludes idle gaps between turns.")
         @Stat("API time", FormatDuration(a.TotalApiDurationMs), "Total wall-clock time spent waiting on model inference (sum of each API call's duration). Excludes tool-execution time.")
         @Stat("Tool calls", a.TotalToolCalls.ToString("N0"), "Number of tool/operation invocations the agent ran (file reads, edits, shell commands, searches, etc.).")
         @Stat("Tool time", FormatDuration(a.TotalToolDurationMs), "Total wall-clock time spent executing tools (running commands, reading/writing files, etc.). Excludes model inference time.")
@@ -501,6 +502,7 @@ else
         var t = TimeSpan.FromMilliseconds(ms);
         if (t.TotalHours >= 1) return $"{(int)t.TotalHours}h {t.Minutes}m";
         if (t.TotalMinutes >= 1) return $"{t.Minutes}m {t.Seconds}s";
-        return $"{t.TotalSeconds:N1}s";
+        if (t.TotalSeconds >= 1) return $"{t.TotalSeconds:N1}s";
+        return $"{(int)Math.Round(t.TotalMilliseconds)}ms";
     }
 }

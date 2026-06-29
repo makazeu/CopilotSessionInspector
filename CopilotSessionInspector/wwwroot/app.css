@@ -59,6 +59,33 @@ a:hover { color: #5a49e0; }
 .table > :not(caption) > * > * { border-bottom-color: #eef0f5; padding-top: .55rem; padding-bottom: .55rem; }
 .table-hover > tbody > tr:hover > * { background: #f6f7fc; }
 .table thead th { color: var(--muted); font-weight: 600; text-transform: uppercase; font-size: .7rem; letter-spacing: .035em; border-bottom: 1px solid var(--border); }
+.session-row { cursor: pointer; }
+.session-row:hover > * { background: #f6f7fc; }
+
+/* Loading states */
+.loading-panel {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    padding: 1.15rem 1.25rem;
+    border: 1px solid #ddd7ff;
+    border-radius: var(--radius);
+    background: linear-gradient(135deg, #ffffff 0%, #f7f6ff 100%);
+    box-shadow: var(--shadow-sm);
+    color: #3730a3;
+}
+.loading-spinner {
+    width: 2rem;
+    height: 2rem;
+    border-radius: 999px;
+    border: 3px solid #ddd7ff;
+    border-top-color: var(--brand);
+    flex: 0 0 auto;
+    animation: loading-spin .8s linear infinite;
+}
+.loading-title { font-weight: 650; color: #241f66; }
+.loading-text { color: #5f5a8a; font-size: .92rem; margin-top: .12rem; }
+@keyframes loading-spin { to { transform: rotate(360deg); } }
 
 /* Alerts */
 .alert { border-radius: 10px; border: 1px solid transparent; }

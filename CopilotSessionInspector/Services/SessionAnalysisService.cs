@@ -38,23 +38,45 @@ public sealed class SessionAnalysisService
         {
             telemetry.TryGetValue(s.Id, out var tele);
             var usage = tele?.Usage ?? new List<AssistantUsageEvent>();
-            rows.Add(new SessionSummaryRow
+            int turnCount = turnCounts.TryGetValue(s.Id, out var tc) ? tc : 0;
+            var events = _events.GetForSession(s.Id);
+            double sessionDurationMs = SessionDurationMs(events, tele, s);
+            var row = new SessionSummaryRow
             {
                 Session = s,
-                TurnCount = turnCounts.TryGetValue(s.Id, out var tc) ? tc : 0,
+                TurnCount = turnCount,
                 ApiCallCount = usage.Count,
                 TotalTokens = usage.Sum(u => u.TotalTokens),
                 TotalAiu = usage.Sum(u => u.Aiu),
                 TotalCost = usage.Sum(u => u.Cost),
                 TotalApiDurationMs = usage.Sum(u => u.DurationMs),
+                SessionDurationMs = sessionDurationMs,
+                HasSessionDuration = sessionDurationMs > 0,
                 HasTelemetry = usage.Count > 0,
-            });
+            };
+
+            // Telemetry logs rotate/expire, but events.jsonl is the authoritative record. Fall
+            // back to it so the list mirrors what the detail page derives (turns, API calls,
+            // output tokens). AIU/cost/API-time need telemetry, so leave those blank when absent.
+            if (!row.HasTelemetry)
+            {
+                if (events.Count > 0)
+                {
+                    var msgs = events.Where(e => e.Type == "assistant.message").ToList();
+                    if (turnCount == 0)
+                        row.TurnCount = events.Count(e => e.Type == "user.message" && !string.IsNullOrWhiteSpace(e.Content));
+                    row.ApiCallCount = msgs.Count;
+                    row.TotalTokens = msgs.Sum(e => e.OutputTokens);
+                }
+            }
+            row.HasStats = row.HasTelemetry || row.ApiCallCount > 0 || row.TotalTokens > 0;
+            rows.Add(row);
         }
 
         return rows
             // Hide empty sessions (no recorded turns and no token telemetry) — these are
             // usually aborted/never-used sessions that only carry a folder-name label.
-            .Where(r => r.TurnCount > 0 || r.HasTelemetry)
+            .Where(r => r.TurnCount > 0 || r.HasStats)
             .OrderByDescending(r => r.Session.UpdatedAt ?? r.Session.CreatedAt ?? DateTimeOffset.MinValue)
             .ToList();
     }
@@ -79,9 +101,93 @@ public sealed class SessionAnalysisService
             BuildTimelineFromEvents(analysis, events, tele);
         else
             BuildTimeline(analysis, turns, tele);
+        analysis.SessionDurationMs = TimelineSessionDurationMs(analysis);
+        if (analysis.SessionDurationMs <= 0)
+            analysis.SessionDurationMs = SessionDurationMs(events, tele, session);
         analysis.Suggestions.AddRange(GenerateSuggestions(analysis));
         return analysis;
     }
+
+    private static double TimelineSessionDurationMs(SessionAnalysis analysis)
+    {
+        double total = 0;
+        foreach (var turn in analysis.Timeline)
+        {
+            if (!turn.StartTime.HasValue) continue;
+            var end = turn.EndTime
+                ?? turn.Steps.Select(s => s.Time).OfType<DateTimeOffset>().DefaultIfEmpty(turn.StartTime.Value).Max();
+            var duration = (end - turn.StartTime.Value).TotalMilliseconds;
+            if (duration > 0) total += duration;
+        }
+        return total;
+    }
+
+    private static double SessionDurationMs(List<SessionEvent> events, SessionTelemetry? tele, SessionInfo session)
+    {
+        var turnDuration = SumTurnDurationMs(events);
+        if (turnDuration > 0) return turnDuration;
+
+        var eventTimes = events
+            .Select(e => e.Timestamp)
+            .OfType<DateTimeOffset>()
+            .Order()
+            .ToList();
+        if (eventTimes.Count >= 2)
+        {
+            var duration = (eventTimes[^1] - eventTimes[0]).TotalMilliseconds;
+            if (duration > 0) return duration;
+        }
+
+        if (tele?.SessionDurationMs is > 0)
+            return tele.SessionDurationMs.Value;
+
+        if (session.CreatedAt.HasValue && session.UpdatedAt.HasValue)
+        {
+            var duration = (session.UpdatedAt.Value - session.CreatedAt.Value).TotalMilliseconds;
+            if (duration > 0) return duration;
+        }
+
+        return 0;
+    }
+
+    private static double SumTurnDurationMs(List<SessionEvent> events)
+    {
+        DateTimeOffset? turnStart = null;
+        DateTimeOffset? lastInTurn = null;
+        double total = 0;
+
+        foreach (var ev in events.OrderBy(e => e.Timestamp ?? DateTimeOffset.MaxValue))
+        {
+            if (ev.Timestamp is null) continue;
+
+            if (ev.Type == "user.message" && !string.IsNullOrWhiteSpace(ev.Content))
+            {
+                if (turnStart.HasValue && lastInTurn.HasValue)
+                {
+                    var duration = (lastInTurn.Value - turnStart.Value).TotalMilliseconds;
+                    if (duration > 0) total += duration;
+                }
+
+                turnStart = ev.Timestamp.Value;
+                lastInTurn = ev.Timestamp.Value;
+                continue;
+            }
+
+            if (turnStart.HasValue && IsTurnActivityEvent(ev))
+                lastInTurn = ev.Timestamp.Value;
+        }
+
+        if (turnStart.HasValue && lastInTurn.HasValue)
+        {
+            var duration = (lastInTurn.Value - turnStart.Value).TotalMilliseconds;
+            if (duration > 0) total += duration;
+        }
+
+        return total;
+    }
+
+    private static bool IsTurnActivityEvent(SessionEvent ev) =>
+        ev.Type is "assistant.message" or "tool.execution_complete";
 
     /// <summary>
     /// Reconstructs the timeline from <c>events.jsonl</c> — the authoritative, fully-ordered
@@ -107,7 +213,7 @@ public sealed class SessionAnalysisService
             if (current is null)
             {
                 // Telemetry/events that precede the first user.message (rare) get a turn 0.
-                current = new TimelineTurn { TurnIndex = analysis.Timeline.Count, StartTime = time };
+                current = new TimelineTurn { TurnIndex = analysis.Timeline.Count, StartTime = time, EndTime = time };
                 analysis.Timeline.Add(current);
             }
             return current;
@@ -123,6 +229,7 @@ public sealed class SessionAnalysisService
                     {
                         TurnIndex = analysis.Timeline.Count,
                         StartTime = ev.Timestamp,
+                        EndTime = ev.Timestamp,
                         UserMessage = ev.Content,
                     };
                     analysis.Timeline.Add(current);
@@ -131,6 +238,7 @@ public sealed class SessionAnalysisService
                 case "assistant.message":
                 {
                     var turn = EnsureTurn(ev.Timestamp);
+                    if (ev.Timestamp is not null) turn.EndTime = ev.Timestamp;
                     turn.Steps.Add(new TurnStep
                     {
                         Time = ev.Timestamp,
@@ -212,12 +320,21 @@ public sealed class SessionAnalysisService
                         Model = ev.Model,
                     };
                     tc.ResultType = ev.Success == false ? "FAILURE" : "SUCCESS";
-                    tc.DurationMs = ev.DurationMs;
+                    // Prefer the telemetry-reported duration; many tools (e.g. shell) omit it,
+                    // so fall back to the wall-clock delta between start and complete events.
+                    double durationMs = ev.DurationMs;
+                    if (durationMs <= 0 && tc.Timestamp.HasValue && ev.Timestamp.HasValue)
+                    {
+                        var delta = (ev.Timestamp.Value - tc.Timestamp.Value).TotalMilliseconds;
+                        if (delta > 0) durationMs = delta;
+                    }
+                    tc.DurationMs = durationMs;
                     tc.ResultLength = ev.ResultLength;
                     tc.IsMcp = ev.IsMcp;
                     pendingTools.Remove(ev.ToolCallId!);
 
                     var turn = EnsureTurn(ev.Timestamp);
+                    if (ev.Timestamp is not null) turn.EndTime = ev.Timestamp;
 
                     // The `task_complete` tool's result IS the turn's final reply — surface it
                     // as the agent's concluding message rather than burying it in the op stream.
@@ -244,7 +361,7 @@ public sealed class SessionAnalysisService
                         Success = ev.Success,
                         ErrorMessage = ev.ErrorMessage,
                         ErrorCode = ev.ErrorCode,
-                        DurationMs = ev.DurationMs,
+                        DurationMs = durationMs,
                         ResultLength = ev.ResultLength,
                         IsMcp = ev.IsMcp,
                         Failed = ev.Success == false,
@@ -328,6 +445,7 @@ public sealed class SessionAnalysisService
                 {
                     TurnIndex = b.Label,
                     StartTime = b.Start,
+                    EndTime = b.Start,
                     UserMessage = b.Turn?.UserMessage,
                     AssistantResponse = b.Turn?.AssistantResponse,
                 };
@@ -344,19 +462,26 @@ public sealed class SessionAnalysisService
         {
             int b = ResolveBucket(u.Timestamp, boundaries);
             if (b < 0) continue;
-            BucketTurn(b).Actions.Add(u);
+            var turn = BucketTurn(b);
+            turn.Actions.Add(u);
+            if (u.Timestamp is not null) turn.EndTime = MaxTime(turn.EndTime, u.Timestamp);
         }
         foreach (var tc in tele.ToolCalls.OrderBy(t => t.Timestamp ?? DateTimeOffset.MaxValue))
         {
             int b = ResolveBucket(tc.Timestamp, boundaries);
             if (b < 0) continue;
-            BucketTurn(b).ToolCalls.Add(tc);
+            var turn = BucketTurn(b);
+            turn.ToolCalls.Add(tc);
+            if (tc.Timestamp is not null)
+                turn.EndTime = MaxTime(turn.EndTime, tc.Timestamp.Value.AddMilliseconds(Math.Max(0, tc.DurationMs)));
         }
         var msgsByBucket = new Dictionary<int, List<AssistantMessageEvent>>();
         foreach (var m in tele.Messages.OrderBy(m => m.Timestamp ?? DateTimeOffset.MaxValue))
         {
             int b = ResolveBucket(m.Timestamp, boundaries);
             if (b < 0) continue;
+            var turn = BucketTurn(b);
+            if (m.Timestamp is not null) turn.EndTime = MaxTime(turn.EndTime, m.Timestamp);
             (msgsByBucket.TryGetValue(b, out var l) ? l : msgsByBucket[b] = new()).Add(m);
         }
 
@@ -370,9 +495,16 @@ public sealed class SessionAnalysisService
             tl.StartTime ??= tl.Steps.FirstOrDefault()?.Time
                 ?? tl.Actions.FirstOrDefault()?.Timestamp
                 ?? tl.ToolCalls.FirstOrDefault()?.Timestamp;
+            tl.EndTime ??= tl.Steps.LastOrDefault()?.Time
+                ?? tl.Actions.LastOrDefault()?.Timestamp
+                ?? tl.ToolCalls.LastOrDefault()?.Timestamp
+                ?? tl.StartTime;
             analysis.Timeline.Add(tl);
         }
     }
+
+    private static DateTimeOffset? MaxTime(DateTimeOffset? current, DateTimeOffset? candidate)
+        => current is null || (candidate is not null && candidate > current) ? candidate : current;
 
     /// <summary>Pulls the <c>summary</c> field out of a task_complete tool's JSON arguments.</summary>
     private static string? ExtractSummaryArg(string? argumentsJson)

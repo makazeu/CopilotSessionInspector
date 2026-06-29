@@ -2,6 +2,7 @@
 @rendermode InteractiveServer
 @inject SessionAnalysisService Analysis
 @inject TelemetryLogParser Telemetry
+@inject NavigationManager Navigation
 
 <PageTitle>Sessions - Copilot Session Inspector</PageTitle>
 
@@ -18,7 +19,16 @@
 }
 else if (_loading)
 {
-    <p><em>Parsing session store and telemetry logs…</em></p>
+    <div class="loading-panel" role="status" aria-live="polite">
+        <div class="loading-spinner" aria-hidden="true"></div>
+        <div>
+            <div class="loading-title">Loading Copilot sessions…</div>
+            <div class="loading-text">
+                Parsing the session database, telemetry logs, and session event streams.
+                The first load can take a few seconds for large histories.
+            </div>
+        </div>
+    </div>
 }
 else if (_rows is null || _rows.Count == 0)
 {
@@ -30,7 +40,7 @@ else
         @_rows.Count sessions · @_rows.Count(r => r.HasTelemetry) with token telemetry ·
         totals: @Sum(r => r.TotalAiu).ToString("N1") AIU,
         @Sum(r => r.TotalTokens / 1000.0).ToString("N0")k tokens,
-        @FormatDuration(_rows.Sum(r => r.TotalApiDurationMs)) API time.
+        @FormatDuration(_rows.Sum(r => r.SessionDurationMs)) session time.
         <span class="ms-2">Telemetry parsed @Telemetry.ParsedAt.ToLocalTime().ToString("g").</span>
     </p>
 
@@ -46,14 +56,14 @@ else
                 <th class="text-end">Tokens</th>
                 <th class="text-end">AIU</th>
                 <th class="text-end">Cost</th>
-                <th class="text-end">API time</th>
+                <th class="text-end">Session time</th>
                 <th></th>
             </tr>
         </thead>
         <tbody>
             @foreach (var r in _rows)
             {
-                <tr>
+                <tr class="session-row" title="Double-click to inspect this session" @ondblclick="@(() => OpenSession(r.Session.Id))">
                     <td>
                         <div class="fw-semibold">@Truncate(r.Session.DisplayName, 60)</div>
                         <div class="text-muted small font-monospace">@r.Session.Id</div>
@@ -61,11 +71,11 @@ else
                     <td class="small">@(r.Session.Repository ?? r.Session.Cwd)</td>
                     <td class="small">@(r.Session.UpdatedAt?.ToLocalTime().ToString("g"))</td>
                     <td class="text-end">@r.TurnCount</td>
-                    <td class="text-end">@(r.HasTelemetry ? r.ApiCallCount.ToString() : "—")</td>
-                    <td class="text-end">@(r.HasTelemetry ? r.TotalTokens.ToString("N0") : "—")</td>
+                    <td class="text-end">@(r.HasStats ? r.ApiCallCount.ToString() : "—")</td>
+                    <td class="text-end">@(r.HasStats ? r.TotalTokens.ToString("N0") : "—")</td>
                     <td class="text-end">@(r.HasTelemetry ? r.TotalAiu.ToString("N1") : "—")</td>
                     <td class="text-end">@(r.HasTelemetry ? r.TotalCost.ToString("N1") : "—")</td>
-                    <td class="text-end">@(r.HasTelemetry ? FormatDuration(r.TotalApiDurationMs) : "—")</td>
+                    <td class="text-end">@(r.HasSessionDuration ? FormatDuration(r.SessionDurationMs) : "—")</td>
                     <td><a class="btn btn-sm btn-outline-primary" href="@($"session/{r.Session.Id}")">Inspect</a></td>
                 </tr>
             }
@@ -78,7 +88,12 @@ else
     private List<SessionSummaryRow>? _rows;
     private bool _loading = true;
 
-    protected override async Task OnInitializedAsync() => await LoadAsync();
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+        await LoadAsync();
+        StateHasChanged();
+    }
 
     private async Task LoadAsync()
     {
@@ -95,6 +110,8 @@ else
         await LoadAsync();
     }
 
+    private void OpenSession(string sessionId) => Navigation.NavigateTo($"session/{sessionId}");
+
     private double Sum(Func<SessionSummaryRow, double> sel) => _rows?.Sum(sel) ?? 0;
 
     private static string Truncate(string s, int n) => s.Length <= n ? s : s[..n] + "…";
@@ -104,6 +121,7 @@ else
         var t = TimeSpan.FromMilliseconds(ms);
         if (t.TotalHours >= 1) return $"{(int)t.TotalHours}h {t.Minutes}m";
         if (t.TotalMinutes >= 1) return $"{t.Minutes}m {t.Seconds}s";
-        return $"{t.TotalSeconds:N1}s";
+        if (t.TotalSeconds >= 1) return $"{t.TotalSeconds:N1}s";
+        return $"{(int)Math.Round(t.TotalMilliseconds)}ms";
     }
 }
