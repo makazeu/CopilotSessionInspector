@@ -217,6 +217,7 @@ h1:focus {
 .form-floating > .form-control-plaintext:focus::placeholder, .form-floating > .form-control:focus::placeholder {
     text-align: start;
 }
+
 /* Copilot Session Inspector: conversation text blocks */
 pre.conv {
     white-space: pre-wrap;
@@ -416,9 +417,6 @@ details.turn-card .turn-summary-label > strong { color: #1b2030; }
 details[open] > .tool-breakdown-summary::before { transform: rotate(90deg); }
 
 /* Responsive skills table */
-.skill-table-wrapper {
-    overflow: visible;
-}
 .skill-table {
     table-layout: auto;
     width: 100%;

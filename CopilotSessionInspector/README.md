@@ -37,7 +37,7 @@ dotnet run
 ```
 
 Then open the printed URL and go to **Sessions**. The first load parses the
-telemetry logs (cached afterwards); use **Reload telemetry** to re-scan.
+telemetry logs (cached afterwards); use **Refresh sessions** to re-scan.
 
 To point at a different `.copilot` folder, set `CopilotHome`:
 
