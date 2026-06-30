@@ -367,6 +367,11 @@ public sealed class SessionAnalysis
                 Aiu = g.Sum(a => a.Aiu),
                 Cost = g.Sum(a => a.Cost),
                 DurationMs = g.Sum(a => a.DurationMs),
+                ContextWindowTokens = ContextLimit,
+                ReasoningEfforts = string.Join(", ", g.Select(a => a.ReasoningEffort)
+                    .Where(e => !string.IsNullOrWhiteSpace(e))
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .OrderBy(e => e)),
             })
             .OrderByDescending(m => m.Aiu);
 }
@@ -393,6 +398,8 @@ public sealed class ModelBreakdown
     public double Aiu { get; set; }
     public double Cost { get; set; }
     public double DurationMs { get; set; }
+    public long ContextWindowTokens { get; set; }
+    public string ReasoningEfforts { get; set; } = "";
 }
 
 public sealed class ToolBreakdown

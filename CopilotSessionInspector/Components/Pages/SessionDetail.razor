@@ -121,7 +121,7 @@ else
         <div class="table-responsive">
         <table class="table table-sm">
             <thead><tr>
-                <th>Model</th><th class="text-end">Calls</th><th class="text-end">Input</th>
+                <th>Model</th><th>Context</th><th>Reasoning</th><th class="text-end">Calls</th><th class="text-end">Input</th>
                 <th class="text-end">Output</th><th class="text-end">AIU</th><th class="text-end">Cost</th><th class="text-end">Time</th>
             </tr></thead>
             <tbody>
@@ -129,6 +129,8 @@ else
                 {
                     <tr>
                         <td class="font-monospace">@m.Model</td>
+                        <td class="small">@FormatTokensShort(m.ContextWindowTokens)</td>
+                        <td class="small">@(string.IsNullOrWhiteSpace(m.ReasoningEfforts) ? "—" : m.ReasoningEfforts)</td>
                         <td class="text-end">@m.Calls</td>
                         <td class="text-end">@m.InputTokens.ToString("N0")</td>
                         <td class="text-end">@m.OutputTokens.ToString("N0")</td>
@@ -145,7 +147,7 @@ else
         {
             <details class="mt-2">
                 <summary class="h5 tool-breakdown-summary">Tools / operations used</summary>
-                <div class="table-responsive mt-2">
+                <div class="table-responsive skill-table-wrapper mt-2">
                 <table class="table table-sm">
                     <thead><tr>
                         <th>Tool</th><th class="text-end">Calls</th><th class="text-end">Failures</th><th class="text-end">Time</th>
@@ -179,6 +181,7 @@ else
             <table class="table table-sm skill-table">
                 <thead><tr>
                     <th class="skill-col-name">Skill</th>
+                    <th class="skill-col-description">Description</th>
                     <th class="skill-col-meta">Plugin</th>
                     <th class="skill-col-meta">Source</th>
                     <th class="skill-col-meta">Trigger</th>
@@ -187,12 +190,29 @@ else
                 <tbody>
                     @foreach (var skill in a.SkillBreakdowns)
                     {
+                        var description = skill.Description ?? "";
+                        var skillKey = SkillDescriptionKey(skill);
+                        var isExpanded = _expandedSkillDescriptions.Contains(skillKey);
                         <tr>
                             <td class="skill-cell-name">
                                 <span class="font-monospace skill-name">✨ @skill.SkillName</span>
-                                @if (!string.IsNullOrWhiteSpace(skill.Description))
+                            </td>
+                            <td class="skill-cell-description">
+                                @if (!string.IsNullOrWhiteSpace(description))
                                 {
-                                    <div class="small text-muted skill-description">@skill.Description</div>
+                                    <div class="skill-description @(isExpanded ? "expanded" : "")">@description</div>
+                                    @if (HasLongSkillDescription(description))
+                                    {
+                                        <button type="button"
+                                                class="btn btn-link btn-sm skill-description-toggle"
+                                                @onclick="() => ToggleSkillDescription(skillKey)">
+                                            @(isExpanded ? "Show less" : "Show more")
+                                        </button>
+                                    }
+                                }
+                                else
+                                {
+                                    <span class="text-muted">—</span>
                                 }
                             </td>
                             <td class="small skill-cell-meta">@(skill.PluginName ?? "—")</td>
@@ -467,6 +487,7 @@ else
     private bool _chartsRendered;
     private string _toolNameFilter = "";
     private string _toolStatusFilter = "";
+    private readonly HashSet<string> _expandedSkillDescriptions = new(StringComparer.Ordinal);
 
     private async Task SetAllTurns(bool open)
         => await JS.InvokeVoidAsync("copilotUi.setAllTurns", open);
@@ -479,6 +500,20 @@ else
         _toolNameFilter = "";
         _toolStatusFilter = "";
     }
+
+    private static string SkillDescriptionKey(SkillBreakdown skill)
+        => $"{skill.SkillName}\u001f{skill.PluginName}\u001f{skill.Source}\u001f{skill.Trigger}";
+
+    private void ToggleSkillDescription(string skillKey)
+    {
+        if (!_expandedSkillDescriptions.Add(skillKey))
+        {
+            _expandedSkillDescriptions.Remove(skillKey);
+        }
+    }
+
+    private static bool HasLongSkillDescription(string description)
+        => description.Length > 180 || description.Contains('\n') || description.Contains('\r');
 
     private static IEnumerable<string> ToolNames(SessionAnalysis analysis) =>
         analysis.Timeline
@@ -742,5 +777,13 @@ else
         if (t.TotalMinutes >= 1) return $"{t.Minutes}m {t.Seconds}s";
         if (t.TotalSeconds >= 1) return $"{t.TotalSeconds:N1}s";
         return $"{(int)Math.Round(t.TotalMilliseconds)}ms";
+    }
+
+    private static string FormatTokensShort(long tokens)
+    {
+        if (tokens <= 0) return "—";
+        if (tokens >= 1_000_000) return $"{tokens / 1_000_000.0:N1}M";
+        if (tokens >= 1_000) return $"{tokens / 1_000.0:N0}K";
+        return tokens.ToString("N0");
     }
 }
